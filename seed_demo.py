@@ -71,4 +71,18 @@ for i, report in enumerate(DEMO_REPORTS):
     icon = status_icon.get(report["status"], "⚪")
     print(f"  {icon} {report['device_id']}  {report['status']:10s}  -> {r.json()}")
 
+#------Seed device heartbeats---------
+DEMO_DEVICES = [
+    {"device_id": "DR-01", "lat": -27.4698, "lon": 153.0251, "battery": 72, "status": "scanning"},
+    {"device_id": "DR-02", "lat": -27.4750, "lon": 153.0180, "battery": 45, "status": "locked"},
+    {"device_id": "DR-03", "lat": -27.4620, "lon": 153.3000, "battery": 91, "status": "idle"},
+    {"device_id": "DR-04", "lat": -27.4800, "lon": 153.0100, "battery": 12, "status": "scanning"},
+]
+
+print(f"\nSeeding {len(DEMO_DEVICES)} device heartbeats...")
+for d in DEMO_DEVICES:
+    r = requests.post(f"{BASE_URL}/api/heartbeat", json=d)
+    bat_icon = "🟢" if d["battery"] > 50 else "🟡" if d["battery"] > 20 else "🔴"
+    print(f"  {bat_icon} {d['device_id']}  battery:{d['battery']}%  {d['status']:10s}  -> {r.json()}")
+
 print("Done! Refresh the dashboard to see the data.")

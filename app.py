@@ -22,6 +22,16 @@ def init_db():
             received_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    conn.execute('''
+     CREATE TABLE IF NOT EXISTS devices(
+     device_id TEXT PRIMARY KEY,
+     lat REAL,
+     lon REAL,
+     battery INTEGER,
+     status TEXT,
+     last_seen TEXT DEFAULT CURRENT_TIMESTAMP
+     )
+    ''')
     conn.commit()
     conn.close()
 
@@ -174,6 +184,58 @@ def clear_reports():
     conn.commit()
     conn.close()
     return jsonify({"success": True}), 200
+
+#------Robot Heartbeat--------
+@app.route('/api/heartbeat', methods=['POST'])
+def receive_heartbeat():
+    """
+    Receive a heartbeat from a robot.
+    Expected JSON body:
+    {
+      "device_id": "DR-01",
+      "lat": -27.4698,
+      "lon": 153.0251,
+      "battery": 72,
+      "status": "scanning" // "scanning" | "locked" | "idle"
+    }
+    """
+    data = request.get_json(silent=True)
+    if not data or 'device_id' not in data:
+        return jsonify({"success": False, "error":"Missing device_id"}),400
+
+    conn = get_db()
+    conn.execute('''
+        INSERT INTO devices (device_id, lat, lon, battery, status, last_seen)
+        VALUES(?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(device_id) DO UPDATE SET
+        lat = excluded.lat,
+        lon = excluded.lon,
+        battery = excluded.battery,
+        status = excluded.status,
+        last_seen = CURRENT_TIMESTAMP
+''', (data['device_id'], data.get('lat'), data.get('lon'), 
+      data.get('battery'), data.get('status')))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True}), 200
+
+@app.route('/api/devices', methods=['GET'])
+def get_devices():
+    """
+    Return all known devices with their last heartbeat info.
+    Each device includes an 'online' field: true if last_seen
+    is within the last 60 seconds, false otherwise.
+    """
+    conn = get_db()
+    rows = conn.execute('''
+        SELECT *,
+           CASE WHEN (julianday('now') - julianday(last_seen)) * 86400 < 60
+                THEN 1 ELSE 0 END AS online
+            FROM devices
+            ORDER BY device_id
+    ''').fetchall()
+    conn.close()
+    return jsonify([dict(row) for row in rows])
 
 
 if __name__ == '__main__':

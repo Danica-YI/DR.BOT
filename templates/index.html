@@ -147,6 +147,61 @@
     color: #9ca3af;
     text-transform: uppercase;
   }
+  .device-panel {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .device-card{
+    background: #1f2937;
+    border: 1px solid #374151;
+    border-radius: 8px;
+    padding: 12px 16px;
+    min-width: 180px;
+    flex: 1;
+  }
+  .device-card.offline{
+    opacity: 0.45;
+    border-color: #ef4444;
+  }
+  .device-header{
+    display: flex;
+    justify-content: space-between;
+    align-items:center;
+    margin-bottom: 8px;
+  }
+  .device-name {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+  }
+  .device-online {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+  }
+  .device-online.on{ background:#14532d; color: #bbf7d0; }
+  .device-online.off{ background: #7f1d1d; color: #fecaca; }
+  .device-detail {
+    font-size: 12px;
+    color: #9ca3af;
+    margin-bottom: 2px;
+  }
+  .battery-bar {
+    height: 6px;
+    background: #374151;
+    border-radius: 3px;
+    margin-top: 6px;
+    overflow: hidden;
+  }
+  .battery-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s;
+  }
 </style>
 </head>
 <body>
@@ -172,6 +227,11 @@
   </div>
 
   <div id="map"></div>
+
+  <div class="section-label">Devices</div>
+  <div class="device-panel" id="device-panel">
+    <div class="device-card"><div class="device-detail">No devices reporting yet...</div></div>
+  </div>
 
   <div class="section-label">Reports</div>
   <table>
@@ -209,6 +269,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 }).addTo(map);
 
 let markers = [];
+let deviceMarkers = [];
 
 function updateMap(reports) {
   // Clear old markers
@@ -289,9 +350,90 @@ async function updateStats() {
   } catch (err) {}
 }
 
+const deviceStatusLabels = {
+  scanning: 'Scanning',
+  locked: 'Locked on target',
+  idle: 'Idle'
+}
+
+async function updateDevices() {
+  try{
+    const res = await fetch('/api/devices');
+    const devices = await res.json();
+    const panel = document.getElementById('device-panel');
+
+    // Clear old device markers from map
+    deviceMarkers.forEach(m => map.removeLayer(m));
+    deviceMarkers = [];
+
+    if (devices.length === 0) {
+      panel.innerHTML = '<div class="device-card"><div class="device-detail">No devices reporting yet...</div></div>';
+      return;
+    }
+
+    // Draw device markers on map
+    devices.forEach(d => {
+      if (d.lat == null || d.lon == null) return;
+      const isOnline = !!d.online;
+      const marker = L.marker([d.lat, d.lon], {
+        icon: L.divIcon({
+          className: '',
+          html: `<div style="
+            background: ${isOnline ? '#3b82f6' : '#6b7280'};
+            color: white;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 3px 6px;
+            border-radius: 4px;
+            border: 2px solid ${isOnline ? '#ffffff' : '#9ca3af'};
+            white-space: nowrap;
+            opacity: ${isOnline ? 1 : 0.5};
+          ">${d.device_id}</div>`,
+          iconSize: null,
+          iconAnchor: [20, 20]
+        })
+      }).addTo(map);
+
+      const batColor = d.battery > 50 ? '#22c55e' : d.battery > 20 ? '#f59e0b' : '#ef4444';
+      const statusText = deviceStatusLabels[d.status] || d.status || '—';
+      marker.bindPopup(`
+        <div class="map-popup">
+          <div class="popup-status" style="color:#3b82f6">${d.device_id}</div>
+          <div>Status: ${statusText}</div>
+          <div>Battery: ${d.battery != null ? d.battery + '%' : '—'}</div>
+          <div>${isOnline ? '🟢 Online' : '🔴 Offline'}</div>
+        </div>
+      `);
+      deviceMarkers.push(marker);
+    });
+
+    // Render cards
+    panel.innerHTML = devices.map(d => {
+        const isOnline = !!d.online;
+        const bat = d.battery != null ? d.battery : '—';
+        const batColor = d.battery > 50 ? '#22c55e' : d.battery > 20 ? '#f59e0b' : '#ef4444';
+        const statusText = deviceStatusLabels[d.status] || d.status || '—';
+        return `
+          <div class="device-card ${isOnline ? '' : 'offline'}">
+            <div class="device-header">
+              <span class="device-name">${d.device_id}</span>
+              <span class="device-online ${isOnline ? 'on' : 'off'}">${isOnline ? 'Online' : 'Offline'}</span>
+            </div>
+            <div class="device-detail">Status: ${statusText}</div>
+            <div class="device-detail">Battery: ${bat}%</div>
+            <div class="battery-bar">
+              <div class="battery-fill" style="width:${d.battery || 0}%; background:${batColor}"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+  } catch (err) {}
+}
+
 async function refresh() {
   try {
     updateStats();
+        updateDevices();
 
     const params = new URLSearchParams();
     if (currentResolvedFilter === 'unresolved') params.set('resolved', 'false');
