@@ -69,7 +69,7 @@ def receive_report():
 
     conn = get_db()
     conn.execute(
-        'INSERT INTO reports (device_id, status, timestamp, lat, lon, resolved) VALUES (?, ?, ?, ?, ?,?)',
+        'INSERT INTO reports (device_id, status, timestamp, lat, lon, resolved) VALUES (?, ?, ?, ?, ?, ?)',
         (data['device_id'], data['status'], data['timestamp'], lat, lon, 1 if data['status'] == 'ok' else 0)
     )
     conn.commit()

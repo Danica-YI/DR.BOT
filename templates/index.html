@@ -115,11 +115,50 @@
     margin-bottom: 8px;
     margin-top: 20px;
   }
+  .stats-bar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .stat-card {
+    background: #1f2937;
+    border: 1px solid #374151;
+    border-radius: 8px;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 140px;
+  }
+  .stat-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .stat-number {
+    font-size: 22px;
+    font-weight: 700;
+    color: #e5e7eb;
+  }
+  .stat-label {
+    font-size: 11px;
+    color: #9ca3af;
+    text-transform: uppercase;
+  }
 </style>
 </head>
 <body>
   <h1>DR.BOT Live Dashboard</h1>
   <div class="subtitle">Auto-refreshes every 3 seconds</div>
+
+  <div class="stats-bar" id="stats-bar">
+    <div class="stat-card"><div class="stat-dot" style="background:#ef4444"></div><div><div class="stat-number" id="stat-medical">0</div><div class="stat-label">Medical</div></div></div>
+    <div class="stat-card"><div class="stat-dot" style="background:#f59e0b"></div><div><div class="stat-number" id="stat-resource">0</div><div class="stat-label">Resources</div></div></div>
+    <div class="stat-card"><div class="stat-dot" style="background:#22c55e"></div><div><div class="stat-number" id="stat-ok">0</div><div class="stat-label">OK</div></div></div>
+    <div class="stat-card"><div class="stat-dot" style="background:#f97316"></div><div><div class="stat-number" id="stat-pending">0</div><div class="stat-label">Pending</div></div></div>
+  </div>
 
   <div class="filters" id="resolved-filters">
     <button class="filter-btn active" data-resolved="unresolved">Unresolved</button>
@@ -241,8 +280,21 @@ async function setResolved(id, resolved) {
   }
 }
 
+async function updateStats() {
+  try {
+    const res = await fetch('/api/reports');
+    const all = await res.json();
+    document.getElementById('stat-medical').textContent = all.filter(r => r.status === 'medical').length;
+    document.getElementById('stat-resource').textContent = all.filter(r => r.status === 'resource').length;
+    document.getElementById('stat-ok').textContent = all.filter(r => r.status === 'ok').length;
+    document.getElementById('stat-pending').textContent = all.filter(r => !r.resolved).length;
+  } catch (err) {}
+}
+
 async function refresh() {
   try {
+    updateStats();
+
     const params = new URLSearchParams();
     if (currentResolvedFilter === 'unresolved') params.set('resolved', 'false');
     if (currentResolvedFilter === 'resolved') params.set('resolved', 'true');
