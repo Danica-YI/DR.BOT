@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>DR.BOT — Live Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DR.BOT Live Dashboard</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   body {
     font-family: -apple-system, "Segoe UI", Arial, sans-serif;
@@ -95,10 +98,27 @@
     color: #9ca3af;
     text-decoration: underline;
   }
+  #map {
+    width: 100%;
+    height: 350px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    border: 1px solid #374151;
+  }
+  .map-popup { font-size: 13px; line-height: 1.5; }
+  .map-popup .popup-status { font-weight: 600; }
+  .section-label {
+    color: #9ca3af;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+    margin-top: 20px;
+  }
 </style>
 </head>
 <body>
-  <h1>DR.BOT — Live Dashboard</h1>
+  <h1>DR.BOT Live Dashboard</h1>
   <div class="subtitle">Auto-refreshes every 3 seconds</div>
 
   <div class="filters" id="resolved-filters">
@@ -113,6 +133,9 @@
     <button class="filter-btn" data-status="ok">OK</button>
   </div>
 
+  <div id="map"></div>
+
+  <div class="section-label">Reports</div>
   <table>
     <thead>
       <tr>
@@ -134,6 +157,60 @@ const statusLabels = {
   resource: "Needs Resources",
   ok: "OK"
 };
+
+const statusColors = {
+  medical: '#ef4444',
+  resource: '#f59e0b',
+  ok: '#22c55e'
+};
+
+// Initialize map centered on Brisbane
+const map = L.map('map').setView([-27.47, 153.02], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap'
+}).addTo(map);
+
+let markers = [];
+
+function updateMap(reports) {
+  // Clear old markers
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+
+  const validReports = reports.filter(r => r.lat != null && r.lon != null);
+
+  validReports.forEach(r => {
+    const color = statusColors[r.status] || '#9ca3af';
+    const label = statusLabels[r.status] || r.status;
+    const isResolved = !!r.resolved;
+
+    const marker = L.circleMarker([r.lat, r.lon], {
+      radius: isResolved ? 6 : 10,
+      fillColor: color,
+      color: isResolved ? '#6b7280' : '#ffffff',
+      weight: 2,
+      opacity: isResolved ? 0.4 : 1,
+      fillOpacity: isResolved ? 0.3 : 0.85
+    }).addTo(map);
+
+    marker.bindPopup(`
+      <div class="map-popup">
+        <div class="popup-status" style="color:${color}">${label}</div>
+        <div>Device: ${r.device_id}</div>
+        <div>Time: ${r.timestamp}</div>
+        <div>${isResolved ? '✓ Resolved' : 'Awaiting response'}</div>
+      </div>
+    `);
+
+    markers.push(marker);
+  });
+
+  // Auto-fit map to show all markers
+  if (validReports.length > 0) {
+    const bounds = L.latLngBounds(validReports.map(r => [r.lat, r.lon]));
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+  }
+}
 
 let currentResolvedFilter = 'unresolved'; // 'unresolved' | 'resolved' | 'all'
 let currentStatusFilter = 'all';
@@ -174,6 +251,8 @@ async function refresh() {
     const res = await fetch(`/api/reports?${params.toString()}`);
     const reports = await res.json();
     const body = document.getElementById('report-body');
+
+    updateMap(reports);
 
     if (reports.length === 0) {
       body.innerHTML = '<tr><td colspan="5" class="empty">No matching reports…</td></tr>';
