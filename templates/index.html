@@ -157,7 +157,6 @@
     <div class="stat-card"><div class="stat-dot" style="background:#ef4444"></div><div><div class="stat-number" id="stat-medical">0</div><div class="stat-label">Medical</div></div></div>
     <div class="stat-card"><div class="stat-dot" style="background:#f59e0b"></div><div><div class="stat-number" id="stat-resource">0</div><div class="stat-label">Resources</div></div></div>
     <div class="stat-card"><div class="stat-dot" style="background:#22c55e"></div><div><div class="stat-number" id="stat-ok">0</div><div class="stat-label">OK</div></div></div>
-    <div class="stat-card"><div class="stat-dot" style="background:#f97316"></div><div><div class="stat-number" id="stat-pending">0</div><div class="stat-label">Pending</div></div></div>
   </div>
 
   <div class="filters" id="resolved-filters">
@@ -287,7 +286,6 @@ async function updateStats() {
     document.getElementById('stat-medical').textContent = all.filter(r => r.status === 'medical').length;
     document.getElementById('stat-resource').textContent = all.filter(r => r.status === 'resource').length;
     document.getElementById('stat-ok').textContent = all.filter(r => r.status === 'ok').length;
-    document.getElementById('stat-pending').textContent = all.filter(r => !r.resolved).length;
   } catch (err) {}
 }
 
