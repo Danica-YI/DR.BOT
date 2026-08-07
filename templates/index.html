@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DR.BOT — Live Dashboard</title>
+<style>
+  body {
+    font-family: -apple-system, "Segoe UI", Arial, sans-serif;
+    background: #111827;
+    color: #e5e7eb;
+    margin: 0;
+    padding: 24px;
+  }
+  h1 {
+    font-size: 20px;
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    color: #9ca3af;
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #1f2937;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 14px;
+    border-bottom: 1px solid #374151;
+  }
+  th {
+    background: #111827;
+    color: #9ca3af;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+  }
+  tr:last-child td { border-bottom: none; }
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .badge.medical { background: #7f1d1d; color: #fecaca; }
+  .badge.resource { background: #78350f; color: #fde68a; }
+  .badge.ok { background: #14532d; color: #bbf7d0; }
+  .empty {
+    padding: 40px;
+    text-align: center;
+    color: #6b7280;
+  }
+</style>
+</head>
+<body>
+  <h1>DR.BOT — Live Dashboard</h1>
+  <div class="subtitle">Auto-refreshes every 3 seconds</div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Status</th>
+        <th>Device</th>
+        <th>Time</th>
+        <th>Location</th>
+      </tr>
+    </thead>
+    <tbody id="report-body">
+      <tr><td colspan="4" class="empty">Waiting for reports…</td></tr>
+    </tbody>
+  </table>
+
+<script>
+const statusLabels = {
+  medical: "Needs Medical",
+  resource: "Needs Resources",
+  ok: "OK"
+};
+
+async function refresh() {
+  try {
+    const res = await fetch('/api/reports');
+    const reports = await res.json();
+    const body = document.getElementById('report-body');
+
+    if (reports.length === 0) {
+      body.innerHTML = '<tr><td colspan="4" class="empty">Waiting for reports…</td></tr>';
+      return;
+    }
+
+    body.innerHTML = reports.map(r => {
+      const label = statusLabels[r.status] || r.status;
+      const loc = (r.lat != null && r.lon != null)
+        ? `${r.lat.toFixed(4)}, ${r.lon.toFixed(4)}`
+        : '—';
+      return `
+        <tr>
+          <td><span class="badge ${r.status}">${label}</span></td>
+          <td>${r.device_id}</td>
+          <td>${r.timestamp}</td>
+          <td>${loc}</td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Failed to fetch reports', err);
+  }
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
