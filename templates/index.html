@@ -57,11 +57,61 @@
     text-align: center;
     color: #6b7280;
   }
+  .filters {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .filter-btn {
+    background: #1f2937;
+    color: #9ca3af;
+    border: 1px solid #374151;
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .filter-btn:hover { background: #374151; }
+  .filter-btn.active {
+    background: #2563eb;
+    color: white;
+    border-color: #2563eb;
+  }
+  tr.resolved { opacity: 0.45; }
+  tr.resolved td { text-decoration: line-through; }
+  .resolve-btn {
+    background: #374151;
+    color: #e5e7eb;
+    border: none;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .resolve-btn:hover { background: #4b5563; }
+  .resolve-btn.undo {
+    background: transparent;
+    color: #9ca3af;
+    text-decoration: underline;
+  }
 </style>
 </head>
 <body>
   <h1>DR.BOT — Live Dashboard</h1>
   <div class="subtitle">Auto-refreshes every 3 seconds</div>
+
+  <div class="filters" id="resolved-filters">
+    <button class="filter-btn active" data-resolved="unresolved">Unresolved</button>
+    <button class="filter-btn" data-resolved="resolved">Resolved</button>
+    <button class="filter-btn" data-resolved="all">All</button>
+  </div>
+  <div class="filters" id="status-filters">
+    <button class="filter-btn active" data-status="all">All statuses</button>
+    <button class="filter-btn" data-status="medical">Needs Medical</button>
+    <button class="filter-btn" data-status="resource">Needs Resources</button>
+    <button class="filter-btn" data-status="ok">OK</button>
+  </div>
 
   <table>
     <thead>
@@ -70,10 +120,11 @@
         <th>Device</th>
         <th>Time</th>
         <th>Location</th>
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody id="report-body">
-      <tr><td colspan="4" class="empty">Waiting for reports…</td></tr>
+      <tr><td colspan="5" class="empty">Waiting for reports…</td></tr>
     </tbody>
   </table>
 
@@ -84,14 +135,48 @@ const statusLabels = {
   ok: "OK"
 };
 
+let currentResolvedFilter = 'unresolved'; // 'unresolved' | 'resolved' | 'all'
+let currentStatusFilter = 'all';
+
+document.getElementById('resolved-filters').addEventListener('click', (e) => {
+  if (!e.target.matches('.filter-btn')) return;
+  currentResolvedFilter = e.target.dataset.resolved;
+  document.querySelectorAll('#resolved-filters .filter-btn').forEach(b => b.classList.remove('active'));
+  e.target.classList.add('active');
+  refresh();
+});
+
+document.getElementById('status-filters').addEventListener('click', (e) => {
+  if (!e.target.matches('.filter-btn')) return;
+  currentStatusFilter = e.target.dataset.status;
+  document.querySelectorAll('#status-filters .filter-btn').forEach(b => b.classList.remove('active'));
+  e.target.classList.add('active');
+  refresh();
+});
+
+async function setResolved(id, resolved) {
+  const action = resolved ? 'resolve' : 'unresolve';
+  try {
+    await fetch(`/api/reports/${id}/${action}`, { method: 'PATCH' });
+    refresh();
+  } catch (err) {
+    console.error('Failed to update report', err);
+  }
+}
+
 async function refresh() {
   try {
-    const res = await fetch('/api/reports');
+    const params = new URLSearchParams();
+    if (currentResolvedFilter === 'unresolved') params.set('resolved', 'false');
+    if (currentResolvedFilter === 'resolved') params.set('resolved', 'true');
+    if (currentStatusFilter !== 'all') params.set('status', currentStatusFilter);
+
+    const res = await fetch(`/api/reports?${params.toString()}`);
     const reports = await res.json();
     const body = document.getElementById('report-body');
 
     if (reports.length === 0) {
-      body.innerHTML = '<tr><td colspan="4" class="empty">Waiting for reports…</td></tr>';
+      body.innerHTML = '<tr><td colspan="5" class="empty">No matching reports…</td></tr>';
       return;
     }
 
@@ -100,12 +185,17 @@ async function refresh() {
       const loc = (r.lat != null && r.lon != null)
         ? `${r.lat.toFixed(4)}, ${r.lon.toFixed(4)}`
         : '—';
+      const isResolved = !!r.resolved;
+      const actionBtn = isResolved
+        ? `<button class="resolve-btn undo" onclick="setResolved(${r.id}, false)">Undo</button>`
+        : `<button class="resolve-btn" onclick="setResolved(${r.id}, true)">Mark resolved</button>`;
       return `
-        <tr>
+        <tr class="${isResolved ? 'resolved' : ''}">
           <td><span class="badge ${r.status}">${label}</span></td>
           <td>${r.device_id}</td>
           <td>${r.timestamp}</td>
           <td>${loc}</td>
+          <td>${actionBtn}</td>
         </tr>
       `;
     }).join('');

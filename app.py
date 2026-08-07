@@ -18,6 +18,7 @@ def init_db():
             timestamp TEXT NOT NULL,
             lat REAL,
             lon REAL,
+            resolved INTEGER NOT NULL DEFAULT 0,
             received_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -68,8 +69,8 @@ def receive_report():
 
     conn = get_db()
     conn.execute(
-        'INSERT INTO reports (device_id, status, timestamp, lat, lon) VALUES (?, ?, ?, ?, ?)',
-        (data['device_id'], data['status'], data['timestamp'], lat, lon)
+        'INSERT INTO reports (device_id, status, timestamp, lat, lon, resolved) VALUES (?, ?, ?, ?, ?,?)',
+        (data['device_id'], data['status'], data['timestamp'], lat, lon, 1 if data['status'] == 'ok' else 0)
     )
     conn.commit()
     conn.close()
@@ -99,8 +100,8 @@ def receive_batch():
             continue
         location = r.get('location') or {}
         conn.execute(
-            'INSERT INTO reports (device_id, status, timestamp, lat, lon) VALUES (?, ?, ?, ?, ?)',
-            (r['device_id'], r['status'], r['timestamp'], location.get('lat'), location.get('lon'))
+            'INSERT INTO reports (device_id, status, timestamp, lat, lon, resolved) VALUES (?, ?, ?, ?, ?, ?)',
+            (r['device_id'], r['status'], r['timestamp'], location.get('lat'), location.get('lon'), 1 if r['status'] == 'ok' else 0)
         )
         inserted += 1
     conn.commit()
@@ -111,11 +112,68 @@ def receive_batch():
 
 @app.route('/api/reports', methods=['GET'])
 def get_reports():
-    """Return all reports, most recent first."""
+    """
+    Return reports, most recent first. Supports optional filtering:
+
+      GET /api/reports                       -> all reports
+      GET /api/reports?resolved=false         -> only unresolved
+      GET /api/reports?resolved=true          -> only resolved
+      GET /api/reports?status=medical         -> only a given status
+      GET /api/reports?status=medical&resolved=false  -> combine filters
+    """
+    query = 'SELECT * FROM reports WHERE 1=1'
+    params = []
+
+    status = request.args.get('status')
+    if status in ('ok', 'medical', 'resource'):
+        query += ' AND status = ?'
+        params.append(status)
+
+    resolved = request.args.get('resolved')
+    if resolved is not None:
+        query += ' AND resolved = ?'
+        params.append(1 if resolved.lower() == 'true' else 0)
+
+    query += ' ORDER BY timestamp DESC'
+
     conn = get_db()
-    rows = conn.execute('SELECT * FROM reports ORDER BY timestamp DESC').fetchall()
+    rows = conn.execute(query, params).fetchall()
     conn.close()
     return jsonify([dict(row) for row in rows])
+
+
+@app.route('/api/reports/<int:report_id>/resolve', methods=['PATCH'])
+def resolve_report(report_id):
+    """Mark a report as resolved (staff has handled this person)."""
+    conn = get_db()
+    cur = conn.execute('UPDATE reports SET resolved = 1 WHERE id = ?', (report_id,))
+    conn.commit()
+    conn.close()
+    if cur.rowcount == 0:
+        return jsonify({"success": False, "error": "Report not found"}), 404
+    return jsonify({"success": True}), 200
+
+
+@app.route('/api/reports/<int:report_id>/unresolve', methods=['PATCH'])
+def unresolve_report(report_id):
+    """Undo a resolve mark, in case it was clicked by mistake."""
+    conn = get_db()
+    cur = conn.execute('UPDATE reports SET resolved = 0 WHERE id = ?', (report_id,))
+    conn.commit()
+    conn.close()
+    if cur.rowcount == 0:
+        return jsonify({"success": False, "error": "Report not found"}), 404
+    return jsonify({"success": True}), 200
+
+
+@app.route('/api/reports', methods=['DELETE'])
+def clear_reports():
+    """Wipe all reports. Useful for resetting before a demo run."""
+    conn = get_db()
+    conn.execute('DELETE FROM reports')
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True}), 200
 
 
 if __name__ == '__main__':
