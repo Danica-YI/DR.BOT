@@ -78,6 +78,20 @@ $env:MOCK_TRIAGE = "true"
 python -m robot.main
 ```
 
+## Run heartbeat-only testing
+
+Use this mode when you want the laptop to behave like a robot device on the dashboard
+without generating incident reports.
+
+```bash
+# Windows PowerShell
+$env:BACKEND_URL = "http://10.51.75.63:5000"
+python -m robot.heartbeat_only
+```
+
+The runner sends only `/api/heartbeat` updates at the interval defined by
+`HEARTBEAT_INTERVAL_SECONDS` in [robot/config.py](robot/config.py).
+
 ## Run the live device integration
 
 A second integration entrypoint exists in `device.py` and the `device/` package.

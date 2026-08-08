@@ -31,13 +31,21 @@ def configure_logging() -> None:
     )
 
 
-def run() -> None:
+def run(
+    heartbeat_interval_seconds: int | None = None,
+    periodic_test_report_interval_seconds: int | None = None,
+    static_location: dict[str, float] | None = None,
+) -> None:
     """Load configuration, initialize components, and start robot execution."""
     configure_logging()
     logger = logging.getLogger(__name__)
 
     logger.info("Starting robot %s version %s", ROBOT_ID, SOFTWARE_VERSION)
-    state_machine = StateMachine()
+    state_machine = StateMachine(
+        heartbeat_interval=heartbeat_interval_seconds,
+        periodic_test_report_interval=periodic_test_report_interval_seconds,
+        static_location=static_location,
+    )
 
     try:
         while True:

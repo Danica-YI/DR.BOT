@@ -1,6 +1,10 @@
 """Shared robot configuration for the DR-01 rescue robot."""
 
 import os
+import time
+
+# Record the program startup time for heartbeat interval calculations
+PROGRAM_STARTUP_TIME = time.time()
 
 
 def _bool_from_env(name: str, default: bool) -> bool:
@@ -33,7 +37,6 @@ MOCK_MOTORS = _bool_from_env("MOCK_MOTORS", True)
 MOCK_TRIAGE = _bool_from_env("MOCK_TRIAGE", True)
 
 SYNC_RETRY_INTERVAL = _int_from_env("SYNC_RETRY_INTERVAL", 10)
-STATUS_UPDATE_INTERVAL = _int_from_env("STATUS_UPDATE_INTERVAL", 5)
+HEARTBEAT_INTERVAL_SECONDS = _int_from_env("HEARTBEAT_INTERVAL_SECONDS", 300)
 
-HEARTBEAT_INTERVAL_SECONDS = _int_from_env("HEARTBEAT_INTERVAL_SECONDS", 5)
 REPORT_BATCH_SIZE = _int_from_env("REPORT_BATCH_SIZE", 10)
