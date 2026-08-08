@@ -17,6 +17,13 @@ except Exception as exc:
 
 
 def _classify_status_from_landmarks(landmarks):
+    """
+    Classify a single gesture frame into an answer token.
+
+    Returns one of "YES", "NO", "HELP", or None — matching the same
+    vocabulary used by voice.py's _answer_from_text, so main.py can treat
+    voice and gesture answers identically.
+    """
     if not landmarks:
         return None
 
@@ -49,11 +56,11 @@ def _classify_status_from_landmarks(landmarks):
     right_hand_up = right_wrist.y < right_shoulder.y - 0.05
 
     if arms_crossed:
-        return "no"
+        return "NO"
     if both_hands_over_head:
-        return "ok"
+        return "YES"
     if left_hand_up != right_hand_up:
-        return "resource"
+        return "HELP"
     return None
 
 
