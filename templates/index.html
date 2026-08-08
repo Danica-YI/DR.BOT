@@ -108,13 +108,24 @@
   }
   .map-popup { font-size: 13px; line-height: 1.5; }
   .map-popup .popup-status { font-weight: 600; }
+  .popup-photo {
+    margin-top: 6px;
+    width: 100%;
+    max-width: 220px;
+    border-radius: 6px;
+    display: block;
+  }
   .section-label {
-    color: #cbd5e1;
-    font-size: 12px;
+    display: block;
+    width: 100%;
+    color: #e2e8f0;
+    font-size: 18px;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-bottom: 8px;
     margin-top: 20px;
+    clear: both;
   }
   .stats-bar {
     display: flex;
@@ -153,6 +164,8 @@
     gap: 12px;
     margin-bottom: 16px;
     flex-wrap: wrap;
+    width: 100%;
+    clear: both;
   }
   .device-card {
     background: #2d3f57;
@@ -206,7 +219,6 @@
 </head>
 <body>
   <h1>DR.BOT Live Dashboard</h1>
-  <div class="subtitle">Auto-refreshes every 3 seconds</div>
 
   <div class="stats-bar" id="stats-bar">
     <div class="stat-card"><div class="stat-dot" style="background:#94a3b8"></div><div><div class="stat-number" id="stat-no_response">0</div><div class="stat-label">No Response</div></div></div>
@@ -319,6 +331,7 @@ function updateMap(reports) {
         <div>Device: ${r.device_id}</div>
         <div>Time: ${r.timestamp}</div>
         <div>${isResolved ? '✓ Resolved' : 'Awaiting response'}</div>
+        ${r.photo ? `<img src="${r.photo}" class="popup-photo" alt="Detection photo" />` : ''}
       </div>
     `);
 

@@ -26,7 +26,6 @@ class TriageFlowTests(unittest.TestCase):
 
     def test_build_triage_assessment_marks_medical_priority(self):
         assessment = build_triage_assessment(
-            initial_status="resource",
             response_type="responding",
             can_walk=False,
             heavy_bleeding=True,
@@ -39,16 +38,16 @@ class TriageFlowTests(unittest.TestCase):
         self.assertGreaterEqual(assessment["confidence"], 0.8)
 
     def test_offline_store_enqueues_and_drain_count(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with tempfile.TemporaryDirectory(dir=os.getcwd()) as tmp_dir:
             db_path = os.path.join(tmp_dir, "offline.db")
             store = OfflineTriageStore(db_path)
-            assessment = build_triage_assessment(initial_status="ok", response_type="responding", can_walk=True)
+            assessment = build_triage_assessment(response_type="responding", can_walk=True)
             store.enqueue(assessment)
 
             self.assertEqual(store.pending_count(), 1)
             pending = store.get_pending()
             self.assertEqual(len(pending), 1)
-            self.assertEqual(pending[0]["payload"]["priority"], "ok")
+            self.assertEqual(pending[0]["payload"]["priority"], "resource")
 
     def test_gesture_requires_multiple_consistent_frames(self):
         stabilizer = GestureStabilizer(window_size=3, required_matches=2)
@@ -108,20 +107,20 @@ class TriageFlowTests(unittest.TestCase):
         chinese_can_walk = _answer_from_text("不能走路", "zh") == "YES"
         self.assertEqual(english_can_walk, chinese_can_walk)
 
-        english = build_triage_assessment("ok", "responding", english_can_walk)
-        chinese = build_triage_assessment("ok", "responding", chinese_can_walk)
+        english = build_triage_assessment("responding", english_can_walk)
+        chinese = build_triage_assessment("responding", chinese_can_walk)
         self.assertEqual(english["priority"], "medical")
         self.assertEqual(chinese["priority"], "medical")
 
-    def test_english_and_chinese_safe_answers_produce_ok_state(self):
+    def test_english_and_chinese_safe_answers_produce_resource_state(self):
         english = build_triage_assessment(
-            "ok", "responding", _answer_from_text("yes", "en") == "YES"
+            "responding", _answer_from_text("yes", "en") == "YES"
         )
         chinese = build_triage_assessment(
-            "ok", "responding", _answer_from_text("可以走路", "zh") == "YES"
+            "responding", _answer_from_text("可以走路", "zh") == "YES"
         )
-        self.assertEqual(english["priority"], "ok")
-        self.assertEqual(chinese["priority"], "ok")
+        self.assertEqual(english["priority"], "resource")
+        self.assertEqual(chinese["priority"], "resource")
 
     def test_hands_crossed_to_opposite_shoulders_are_no(self):
         landmarks = self._pose_landmarks(

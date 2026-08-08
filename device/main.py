@@ -386,6 +386,8 @@ class DeviceTriageRunner:
                 "heavy_bleeding": "NO",
                 "breathing_difficulty": "NO",
                 "trapped": "NO",
+                "severe_pain": "NO",
+                "needs_supply": "YES",
             }
             answer = scripted[key]
             return VoiceAnswer(answer, 1.0, "DEMO", answer.lower())
@@ -497,12 +499,16 @@ class DeviceTriageRunner:
         can_walk_for_rules = can_walk is not False
 
         self.assessment = build_triage_assessment(
-            initial_status="resource" if self.resource_requested else "ok",
             response_type=self.response_type or "responding",
             can_walk=can_walk_for_rules,
             heavy_bleeding=heavy_bleeding,
             breathing_difficulty=breathing_difficulty,
             trapped=trapped,
+            severe_pain=severe_pain,
+            needs_supply=(
+                self.answers.get("needs_supply") is True
+                or self.resource_requested
+            ),
         )
         self.assessment["response_detected"] = self.response_type == "responding"
         self.assessment["interaction_mode"] = self.interaction_mode
