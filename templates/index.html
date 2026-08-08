@@ -55,6 +55,7 @@
   .badge.medical { background: #7f1d1d; color: #fecaca; }
   .badge.resource { background: #78350f; color: #fde68a; }
   .badge.ok { background: #14532d; color: #bbf7d0; }
+  .badge.no_response { background: #581c87; color: #e9d5ff; }
   .empty {
     padding: 40px;
     text-align: center;
@@ -212,6 +213,7 @@
     <div class="stat-card"><div class="stat-dot" style="background:#ef4444"></div><div><div class="stat-number" id="stat-medical">0</div><div class="stat-label">Medical</div></div></div>
     <div class="stat-card"><div class="stat-dot" style="background:#f59e0b"></div><div><div class="stat-number" id="stat-resource">0</div><div class="stat-label">Resources</div></div></div>
     <div class="stat-card"><div class="stat-dot" style="background:#22c55e"></div><div><div class="stat-number" id="stat-ok">0</div><div class="stat-label">OK</div></div></div>
+    <div class="stat-card"><div class="stat-dot" style="background:#a855f7"></div><div><div class="stat-number" id="stat-no-response">0</div><div class="stat-label">No Response</div></div></div>
   </div>
 
   <div class="filters" id="resolved-filters">
@@ -224,6 +226,7 @@
     <button class="filter-btn" data-status="medical">Needs Medical</button>
     <button class="filter-btn" data-status="resource">Needs Resources</button>
     <button class="filter-btn" data-status="ok">OK</button>
+    <button class="filter-btn" data-status="no_response">No Response</button>
   </div>
 
   <div id="map"></div>
@@ -253,13 +256,15 @@
 const statusLabels = {
   medical: "Needs Medical",
   resource: "Needs Resources",
-  ok: "OK"
+  ok: "OK",
+  no_response: "No Response"
 };
 
 const statusColors = {
   medical: '#ef4444',
   resource: '#f59e0b',
-  ok: '#22c55e'
+  ok: '#22c55e',
+  no_response: '#a855f7'
 };
 
 // Initialize map centered on Brisbane
@@ -347,6 +352,7 @@ async function updateStats() {
     document.getElementById('stat-medical').textContent = all.filter(r => r.status === 'medical').length;
     document.getElementById('stat-resource').textContent = all.filter(r => r.status === 'resource').length;
     document.getElementById('stat-ok').textContent = all.filter(r => r.status === 'ok').length;
+    document.getElementById('stat-no-response').textContent = all.filter(r => r.status === 'no_response').length;
   } catch (err) {}
 }
 
