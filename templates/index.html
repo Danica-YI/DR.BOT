@@ -206,6 +206,7 @@
 </head>
 <body>
   <h1>DR.BOT Live Dashboard</h1>
+  <div class="subtitle">Auto-refreshes every 3 seconds</div>
 
   <div class="stats-bar" id="stats-bar">
     <div class="stat-card"><div class="stat-dot" style="background:#94a3b8"></div><div><div class="stat-number" id="stat-no_response">0</div><div class="stat-label">No Response</div></div></div>
@@ -263,6 +264,14 @@ const statusColors = {
   both: '#ef4444',
   medical: '#f97316',
   resource: '#eab308'
+};
+
+// Higher number = more urgent. Used for sorting only, not displayed directly.
+const statusPriority = {
+  no_response: 5,
+  both: 4,
+  medical: 3,
+  resource: 2
 };
 
 // Initialize map centered on Brisbane
@@ -459,6 +468,14 @@ async function refresh() {
 
     const res = await fetch(`/api/reports?${params.toString()}`);
     const reports = await res.json();
+
+    // Sort by urgency (highest priority first), most recent within same priority
+    reports.sort((a, b) => {
+      const priorityDiff = (statusPriority[b.status] || 0) - (statusPriority[a.status] || 0);
+      if (priorityDiff !== 0) return priorityDiff;
+      return new Date(b.timestamp) - new Date(a.timestamp);
+    });
+
     const body = document.getElementById('report-body');
 
     updateMap(reports);
