@@ -69,7 +69,8 @@ Receive a single triage report.
   "location": {"lat": -27.4698, "lon": 153.0251}
 }
 ```
-`status` must be one of: `"ok"`, `"medical"`, `"resource"`
+`status` must be one of: `"No any response"`, `"Both needpip install flask opencv-python ultralytics mediapipe requests
+pip install pyttsx3 vosk sounddevice"`, `"medical"`, `"resource"`
 
 ### `POST /api/reports/batch`
 Receive multiple queued reports at once (used after a device reconnects following an offline period).

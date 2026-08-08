@@ -52,6 +52,8 @@ class DeviceTriageRunner:
             ("heavy_bleeding", "Are you bleeding heavily?"),
             ("breathing_difficulty", "Are you having trouble breathing?"),
             ("trapped", "Are you trapped?"),
+            ("severe_pain", "Is the pain severe?"),
+            ("needs_supply", "Do you need supplies?"),
         ]
         self.message = "Searching for person..."
 
@@ -194,6 +196,8 @@ class DeviceTriageRunner:
                 "heavy_bleeding": "NO",
                 "breathing_difficulty": "NO",
                 "trapped": "NO",
+                "severe_pain": "NO",
+                "needs_supply": "YES",
             }
             answer = scripted[key]
             return VoiceAnswer(answer, 1.0, "DEMO", answer.lower())
@@ -229,8 +233,6 @@ class DeviceTriageRunner:
             self.question_index = -1
         else:
             self.answers[key] = answer == "YES" if answer in ("YES", "NO") else None
-        if answer == "HELP":
-            self.resource_requested = True
         self.status_text = answer.lower()
         self.state = "NEXT_QUESTION"
         self.message = f"Accepted {answer} via {source}."
@@ -273,13 +275,14 @@ class DeviceTriageRunner:
         can_walk_for_rules = can_walk is not False
 
         self.assessment = build_triage_assessment(
-            initial_status="resource" if self.resource_requested else "ok",
-            response_type=self.response_type or "responding",
-            can_walk=can_walk_for_rules,
-            heavy_bleeding=heavy_bleeding,
-            breathing_difficulty=breathing_difficulty,
-            trapped=trapped,
-        )
+                response_type=self.response_type or "responding",
+                can_walk=can_walk_for_rules,
+                heavy_bleeding=heavy_bleeding,
+                breathing_difficulty=breathing_difficulty,
+                trapped=trapped,
+                severe_pain=self.answers.get("severe_pain") is True,
+                needs_supply=self.answers.get("needs_supply") is True,
+            )
         self.assessment["response_detected"] = self.response_type == "responding"
         self.assessment["interaction_mode"] = self.interaction_mode
         self.assessment["answers"] = self.answer_details
