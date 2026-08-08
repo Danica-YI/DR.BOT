@@ -56,6 +56,7 @@
   .badge.both { background: #7f1d1d; color: #fecaca; }
   .badge.medical { background: #7c2d12; color: #fed7aa; }
   .badge.resource { background: #78350f; color: #fde68a; }
+  .badge.ok { background: #14532d; color: #bbf7d0; }
   .empty {
     padding: 40px;
     text-align: center;
@@ -213,6 +214,7 @@
     <div class="stat-card"><div class="stat-dot" style="background:#ef4444"></div><div><div class="stat-number" id="stat-both">0</div><div class="stat-label">Both Need</div></div></div>
     <div class="stat-card"><div class="stat-dot" style="background:#f97316"></div><div><div class="stat-number" id="stat-medical">0</div><div class="stat-label">Medical</div></div></div>
     <div class="stat-card"><div class="stat-dot" style="background:#eab308"></div><div><div class="stat-number" id="stat-resource">0</div><div class="stat-label">Resources</div></div></div>
+    <div class="stat-card"><div class="stat-dot" style="background:#22c55e"></div><div><div class="stat-number" id="stat-ok">0</div><div class="stat-label">OK</div></div></div>
   </div>
 
   <div class="filters" id="resolved-filters">
@@ -226,6 +228,7 @@
     <button class="filter-btn" data-status="both">Both Need</button>
     <button class="filter-btn" data-status="medical">Needs Medical</button>
     <button class="filter-btn" data-status="resource">Needs Resources</button>
+    <button class="filter-btn" data-status="ok">OK</button>
   </div>
 
   <div id="map"></div>
@@ -256,14 +259,16 @@ const statusLabels = {
   no_response: "No Response",
   both: "Both Need",
   medical: "Needs Medical",
-  resource: "Needs Resources"
+  resource: "Needs Resources",
+  ok: "OK"
 };
 
 const statusColors = {
   no_response: '#94a3b8',
   both: '#ef4444',
   medical: '#f97316',
-  resource: '#eab308'
+  resource: '#eab308',
+  ok: '#22c55e'
 };
 
 // Higher number = more urgent. Used for sorting only, not displayed directly.
@@ -271,7 +276,8 @@ const statusPriority = {
   no_response: 5,
   both: 4,
   medical: 3,
-  resource: 2
+  resource: 2,
+  ok: 1
 };
 
 // Initialize map centered on Brisbane
@@ -368,6 +374,7 @@ async function updateStats() {
     document.getElementById('stat-both').textContent = all.filter(r => r.status === 'both').length;
     document.getElementById('stat-medical').textContent = all.filter(r => r.status === 'medical').length;
     document.getElementById('stat-resource').textContent = all.filter(r => r.status === 'resource').length;
+    document.getElementById('stat-ok').textContent = all.filter(r => r.status === 'ok').length;
   } catch (err) {}
 }
 

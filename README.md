@@ -124,6 +124,32 @@ Useful options include:
 - `--lat` and `--lon` — location coordinates
 - `--no-display` — run without preview window
 
+## Offline voice-first triage
+
+The device asks each question using offline text-to-speech and waits for a
+spoken YES/NO answer first. If speech is unavailable, unrecognised, or times
+out, it automatically falls back to multi-frame gesture recognition.
+
+Install the optional offline audio dependencies:
+
+```bash
+python -m pip install pyttsx3 vosk sounddevice
+```
+
+Download and unpack a small English Vosk model locally, then run:
+
+```bash
+python device.py --vosk-model path/to/vosk-model-small-en-us-0.15
+```
+
+The model can also be selected with the `VOSK_MODEL_PATH` environment
+variable. If audio dependencies, the microphone, or the model are missing,
+the workflow continues using gestures. To intentionally test gesture-only
+fallback, run `python device.py --no-voice`.
+
+Default response windows are four seconds for voice and five seconds for a
+stable gesture. Override them with `--voice-timeout` and `--gesture-timeout`.
+
 ## API
 
 ### `POST /api/report`

@@ -1,6 +1,8 @@
-from flask import Flask, request, jsonify, render_template
-import sqlite3
+import json
 import os
+import sqlite3
+
+from flask import Flask, jsonify, render_template, request
 
 app = Flask(__name__)
 
@@ -30,6 +32,18 @@ def init_db():
             battery INTEGER,
             status TEXT,
             last_seen TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS triage_assessments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL,
+            assessment_json TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            lat REAL,
+            lon REAL,
+            resolved INTEGER NOT NULL DEFAULT 0,
+            received_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     conn.commit()
@@ -70,8 +84,8 @@ def receive_report():
     if missing:
         return jsonify({"success": False, "error": f"Missing fields: {missing}"}), 400
 
-    if data['status'] not in ('no_response', 'both', 'medical', 'resource'):
-        return jsonify({"success": False, "error": "status must be one of: no_response, both, medical, resource"}), 400
+    if data['status'] not in ('no_response', 'both', 'medical', 'resource', 'ok'):
+        return jsonify({"success": False, "error": "status must be one of: no_response, both, medical, resource, ok"}), 400
 
     location = data.get('location') or {}
     lat = location.get('lat')
@@ -131,6 +145,102 @@ def receive_batch():
     return jsonify({"success": True, "inserted": inserted}), 200
 
 
+@app.route('/api/triage', methods=['POST'])
+def receive_triage_assessment():
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"success": False, "error": "Missing or invalid JSON body"}), 400
+
+    assessment = data.get('assessment') or {}
+    if not assessment:
+        return jsonify({"success": False, "error": "Missing assessment payload"}), 400
+
+    location = data.get('location') or {}
+    conn = get_db()
+    conn.execute(
+        'INSERT INTO triage_assessments (device_id, assessment_json, timestamp, lat, lon, resolved) VALUES (?, ?, ?, ?, ?, ?)',
+        (
+            data['device_id'],
+            json.dumps(assessment),
+            data.get('timestamp') or assessment.get('timestamp'),
+            location.get('lat'),
+            location.get('lon'),
+            0,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    report_status = assessment.get('priority')
+    if assessment.get('response_detected') is False and assessment.get('review_reason') == 'NO_RESPONSE':
+        report_status = 'no_response'
+
+    if report_status in ('medical', 'resource', 'no_response'):
+        conn = get_db()
+        conn.execute(
+            'INSERT INTO reports (device_id, status, timestamp, lat, lon, resolved) VALUES (?, ?, ?, ?, ?, ?)',
+            (
+                data['device_id'],
+                report_status,
+                assessment.get('timestamp') or data.get('timestamp'),
+                location.get('lat'),
+                location.get('lon'),
+                0,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+    return jsonify({"success": True, "assessment_id": assessment.get('assessment_id')}), 200
+
+
+@app.route('/api/triage/batch', methods=['POST'])
+def receive_triage_batch():
+    data = request.get_json(silent=True)
+    if not data or 'assessments' not in data:
+        return jsonify({"success": False, "error": "Missing 'assessments' array"}), 400
+
+    inserted = 0
+    conn = get_db()
+    for assessment in data['assessments']:
+        if not assessment:
+            continue
+        conn.execute(
+            'INSERT INTO triage_assessments (device_id, assessment_json, timestamp, lat, lon, resolved) VALUES (?, ?, ?, ?, ?, ?)',
+            (
+                data['device_id'],
+                json.dumps(assessment),
+                assessment.get('timestamp'),
+                data.get('location', {}).get('lat'),
+                data.get('location', {}).get('lon'),
+                0,
+            ),
+        )
+        report_status = assessment.get('priority')
+        if assessment.get('response_detected') is False and assessment.get('review_reason') == 'NO_RESPONSE':
+            report_status = 'no_response'
+        if report_status in ('medical', 'resource', 'no_response'):
+            conn.execute(
+                'INSERT INTO reports (device_id, status, timestamp, lat, lon, resolved) VALUES (?, ?, ?, ?, ?, ?)',
+                (
+                    data['device_id'], report_status, assessment.get('timestamp'),
+                    data.get('location', {}).get('lat'), data.get('location', {}).get('lon'), 0,
+                ),
+            )
+        inserted += 1
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "inserted": inserted}), 200
+
+
+@app.route('/api/triage', methods=['GET'])
+def get_triage_assessments():
+    conn = get_db()
+    rows = conn.execute('SELECT * FROM triage_assessments ORDER BY timestamp DESC').fetchall()
+    conn.close()
+    return jsonify([dict(row) for row in rows])
+
+
 @app.route('/api/reports', methods=['GET'])
 def get_reports():
     """
@@ -146,7 +256,7 @@ def get_reports():
     params = []
 
     status = request.args.get('status')
-    if status in ('no_response', 'both', 'medical', 'resource'):
+    if status in ('no_response', 'both', 'medical', 'resource', 'ok'):
         query += ' AND status = ?'
         params.append(status)
 
