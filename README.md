@@ -32,9 +32,13 @@ The script will:
 
 ## Offline voice-first triage
 
-The device asks each question using offline text-to-speech and waits for a
-spoken YES/NO answer first. If speech is unavailable, unrecognised, or times
-out, it automatically falls back to multi-frame gesture recognition.
+After detecting a person, the device asks the bilingual initial question and
+waits up to five seconds for voice. A valid response locks English or Chinese
+for the assessment. If there is no initial voice response, the device asks the
+bilingual second prompt and monitors voice and MediaPipe gestures concurrently
+for another five seconds. Speech selects voice mode, a gesture selects gesture
+mode, and neither produces `NO_RESPONSE` for responder review without inferring
+a medical diagnosis.
 
 Install the optional offline audio dependencies:
 
@@ -53,8 +57,26 @@ variable. If audio dependencies, the microphone, or the model are missing,
 the workflow continues using gestures. To intentionally test gesture-only
 fallback, run `python device.py --no-voice`.
 
-Default response windows are four seconds for voice and five seconds for a
-stable gesture. Override them with `--voice-timeout` and `--gesture-timeout`.
+The initial and combined second response windows default to five seconds and
+are both configured with `--voice-timeout`. `--gesture-timeout` controls gesture
+answer windows after gesture mode has been selected.
+
+### Optional one-time English/Chinese detection
+
+Install `faster-whisper` and provide a multilingual model that is already
+available locally:
+
+```bash
+python -m pip install faster-whisper
+python device.py --vosk-model ./vosk-model-small-en-us-0.15 --whisper-model ./whisper-tiny --audio-device 1
+```
+
+The initial response is transcribed once with automatic language detection.
+The selected `en` or `zh` language is then cached for the assessment. English
+answers use lightweight Vosk after detection; Chinese answers use the already
+loaded Whisper model with `language="zh"`, so language detection is not repeated
+for every question. Runtime model downloads are disabled to preserve offline
+operation; `--whisper-model` must resolve from a local directory or cache.
 
 ## API
 

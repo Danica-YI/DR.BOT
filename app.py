@@ -172,7 +172,9 @@ def receive_triage_assessment():
     conn.close()
 
     report_status = assessment.get('priority')
-    if assessment.get('response_detected') is False and assessment.get('review_reason') == 'NO_RESPONSE':
+    if assessment.get('response_detected') is False and assessment.get('review_reason') in (
+        'NO_RESPONSE', 'NO_VOICE_OR_GESTURE_RESPONSE'
+    ):
         report_status = 'no_response'
 
     if report_status in ('medical', 'resource', 'no_response'):
@@ -217,7 +219,9 @@ def receive_triage_batch():
             ),
         )
         report_status = assessment.get('priority')
-        if assessment.get('response_detected') is False and assessment.get('review_reason') == 'NO_RESPONSE':
+        if assessment.get('response_detected') is False and assessment.get('review_reason') in (
+            'NO_RESPONSE', 'NO_VOICE_OR_GESTURE_RESPONSE'
+        ):
             report_status = 'no_response'
         if report_status in ('medical', 'resource', 'no_response'):
             conn.execute(
