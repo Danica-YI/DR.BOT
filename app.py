@@ -81,16 +81,18 @@ def receive_report():
     conn.execute(
         'INSERT INTO reports (device_id, status, timestamp, lat, lon, resolved) VALUES (?, ?, ?, ?, ?, ?)',
         (data['device_id'], data['status'], data['timestamp'], lat, lon, 0)
+    )
 
-    # Report also counts as heartbeat
-    conn.exceute('''
-         INSERT INTO devices (device_id, lat, lon, last_seen)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-         ON CONFLICT(device_id) DO UPDATE SET
+    # Report also counts as heartbeat (device is alive)
+    conn.execute('''
+        INSERT INTO devices (device_id, lat, lon, last_seen)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(device_id) DO UPDATE SET
             lat = excluded.lat,
             lon = excluded.lon,
             last_seen = CURRENT_TIMESTAMP
-       ''', (data['device_id'], lat, lon))
+    ''', (data['device_id'], lat, lon))
+
     conn.commit()
     conn.close()
 
@@ -243,10 +245,11 @@ def get_devices():
     conn = get_db()
     rows = conn.execute('''
         SELECT *,
-           CASE WHEN (julianday('now') - julianday(last_seen)) * 86400 < 600
-                THEN 1 ELSE 0 END AS online
-            FROM devices
-            ORDER BY device_id
+            CASE WHEN (julianday('now') - julianday(last_seen)) * 86400 < 600
+                 THEN 1 ELSE 0 END AS online,
+            CAST((julianday('now') - julianday(last_seen)) * 86400 AS INTEGER) AS seconds_ago
+        FROM devices
+        ORDER BY device_id
     ''').fetchall()
     conn.close()
     return jsonify([dict(row) for row in rows])
