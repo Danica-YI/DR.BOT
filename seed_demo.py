@@ -6,7 +6,7 @@ with sample reports spread across Brisbane.
 Usage:
     python seed_demo.py           # seed data (default: http://127.0.0.1:5000)
     python seed_demo.py --clear   # clear all data first, then seed
-    python seed_demo.py --url http://10.88.63.39:5000   # custom server URL
+    python seed_demo.py --url http://10.51.75.63:5000   # custom server URL
 """
 
 import requests
@@ -14,12 +14,12 @@ import sys
 
 BASE_URL = "http://127.0.0.1:5000"
 
-# Parse args
 if "--url" in sys.argv:
     idx = sys.argv.index("--url")
     if idx + 1 < len(sys.argv):
         BASE_URL = sys.argv[idx + 1]
 
+# status must be one of: no_response, both, medical, resource
 DEMO_REPORTS = [
     {
         "device_id": "DR-01",
@@ -35,13 +35,13 @@ DEMO_REPORTS = [
     },
     {
         "device_id": "DR-03",
-        "status": "medical",
+        "status": "both",
         "timestamp": "2026-08-08T10:34:00+10:00",
         "location": {"lat": -27.4620, "lon": 153.0300}
     },
     {
         "device_id": "DR-01",
-        "status": "ok",
+        "status": "no_response",
         "timestamp": "2026-08-08T10:36:00+10:00",
         "location": {"lat": -27.4710, "lon": 153.0230}
     },
@@ -65,18 +65,19 @@ if "--clear" in sys.argv:
     print(f"  -> {r.json()}")
 
 print(f"Seeding {len(DEMO_REPORTS)} reports to {BASE_URL}...")
-for i, report in enumerate(DEMO_REPORTS):
+status_icon = {"no_response": "⚫", "both": "🔴", "medical": "🟠", "resource": "🟡"}
+for report in DEMO_REPORTS:
     r = requests.post(f"{BASE_URL}/api/report", json=report)
-    status_icon = {"medical": "🔴", "resource": "🟡", "ok": "🟢"}
     icon = status_icon.get(report["status"], "⚪")
-    print(f"  {icon} {report['device_id']}  {report['status']:10s}  -> {r.json()}")
+    print(f"  {icon} {report['device_id']}  {report['status']:12s}  -> {r.json()}")
 
-#------Seed device heartbeats---------
+# ── Seed device heartbeats ──────────────────────────────────
 DEMO_DEVICES = [
     {"device_id": "DR-01", "lat": -27.4698, "lon": 153.0251, "battery": 72, "status": "scanning"},
     {"device_id": "DR-02", "lat": -27.4750, "lon": 153.0180, "battery": 45, "status": "locked"},
-    {"device_id": "DR-03", "lat": -27.4620, "lon": 153.3000, "battery": 91, "status": "idle"},
+    {"device_id": "DR-03", "lat": -27.4620, "lon": 153.0300, "battery": 91, "status": "idle"},
     {"device_id": "DR-04", "lat": -27.4800, "lon": 153.0100, "battery": 12, "status": "scanning"},
+    {"device_id": "DR-05", "lat": -27.4550, "lon": 153.0400, "battery": 58, "status": "scanning"},
 ]
 
 print(f"\nSeeding {len(DEMO_DEVICES)} device heartbeats...")
@@ -85,4 +86,4 @@ for d in DEMO_DEVICES:
     bat_icon = "🟢" if d["battery"] > 50 else "🟡" if d["battery"] > 20 else "🔴"
     print(f"  {bat_icon} {d['device_id']}  battery:{d['battery']}%  {d['status']:10s}  -> {r.json()}")
 
-print("Done! Refresh the dashboard to see the data.")
+print("\nDone! Refresh the dashboard to see the data.")

@@ -25,14 +25,14 @@ def init_db():
         )
     ''')
     conn.execute('''
-     CREATE TABLE IF NOT EXISTS devices(
-     device_id TEXT PRIMARY KEY,
-     lat REAL,
-     lon REAL,
-     battery INTEGER,
-     status TEXT,
-     last_seen TEXT DEFAULT CURRENT_TIMESTAMP
-     )
+        CREATE TABLE IF NOT EXISTS devices (
+            device_id TEXT PRIMARY KEY,
+            lat REAL,
+            lon REAL,
+            battery INTEGER,
+            status TEXT,
+            last_seen TEXT DEFAULT CURRENT_TIMESTAMP
+        )
     ''')
     conn.execute('''
         CREATE TABLE IF NOT EXISTS triage_assessments (
@@ -70,7 +70,7 @@ def receive_report():
     Expected JSON body:
     {
       "device_id": "V003",
-      "status": "medical",      # "ok" | "medical" | "resource"
+      "status": "medical",      # "no_response" | "both" | "medical" | "resource"
       "timestamp": "2026-08-07T14:32:18+10:00",
       "location": {"lat": -27.4698, "lon": 153.0251}
     }
@@ -84,8 +84,8 @@ def receive_report():
     if missing:
         return jsonify({"success": False, "error": f"Missing fields: {missing}"}), 400
 
-    if data['status'] not in ('ok', 'medical', 'resource', 'no_response'):
-        return jsonify({"success": False, "error": "status must be one of: ok, medical, resource, no_response"}), 400
+    if data['status'] not in ('no_response', 'both', 'medical', 'resource', 'ok'):
+        return jsonify({"success": False, "error": "status must be one of: no_response, both, medical, resource, ok"}), 400
 
     location = data.get('location') or {}
     lat = location.get('lat')
@@ -94,8 +94,19 @@ def receive_report():
     conn = get_db()
     conn.execute(
         'INSERT INTO reports (device_id, status, timestamp, lat, lon, resolved) VALUES (?, ?, ?, ?, ?, ?)',
-        (data['device_id'], data['status'], data['timestamp'], lat, lon, 1 if data['status'] == 'ok' else 0)
+        (data['device_id'], data['status'], data['timestamp'], lat, lon, 0)
     )
+
+    # Report also counts as heartbeat (device is alive)
+    conn.execute('''
+        INSERT INTO devices (device_id, lat, lon, last_seen)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(device_id) DO UPDATE SET
+            lat = excluded.lat,
+            lon = excluded.lon,
+            last_seen = CURRENT_TIMESTAMP
+    ''', (data['device_id'], lat, lon))
+
     conn.commit()
     conn.close()
 
@@ -120,12 +131,12 @@ def receive_batch():
     for r in data['reports']:
         if not all(k in r for k in ('device_id', 'status', 'timestamp')):
             continue
-        if r['status'] not in ('ok', 'medical', 'resource'):
+        if r['status'] not in ('no_response', 'both', 'medical', 'resource'):
             continue
         location = r.get('location') or {}
         conn.execute(
             'INSERT INTO reports (device_id, status, timestamp, lat, lon, resolved) VALUES (?, ?, ?, ?, ?, ?)',
-            (r['device_id'], r['status'], r['timestamp'], location.get('lat'), location.get('lon'), 1 if r['status'] == 'ok' else 0)
+            (r['device_id'], r['status'], r['timestamp'], location.get('lat'), location.get('lon'), 0)
         )
         inserted += 1
     conn.commit()
@@ -245,7 +256,7 @@ def get_reports():
     params = []
 
     status = request.args.get('status')
-    if status in ('ok', 'medical', 'resource', 'no_response'):
+    if status in ('no_response', 'both', 'medical', 'resource', 'ok'):
         query += ' AND status = ?'
         params.append(status)
 
@@ -295,54 +306,60 @@ def clear_reports():
     conn.close()
     return jsonify({"success": True}), 200
 
-#------Robot Heartbeat--------
+
+# ── Device heartbeat ──────────────────────────────────
+
 @app.route('/api/heartbeat', methods=['POST'])
 def receive_heartbeat():
     """
-    Receive a heartbeat from a robot.
+    Receive a heartbeat from a device.
+
     Expected JSON body:
     {
       "device_id": "DR-01",
       "lat": -27.4698,
       "lon": 153.0251,
       "battery": 72,
-      "status": "scanning" // "scanning" | "locked" | "idle"
+      "status": "scanning"    // "scanning" | "locked" | "idle"
     }
     """
     data = request.get_json(silent=True)
     if not data or 'device_id' not in data:
-        return jsonify({"success": False, "error":"Missing device_id"}),400
+        return jsonify({"success": False, "error": "Missing device_id"}), 400
 
     conn = get_db()
     conn.execute('''
         INSERT INTO devices (device_id, lat, lon, battery, status, last_seen)
-        VALUES(?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(device_id) DO UPDATE SET
-        lat = excluded.lat,
-        lon = excluded.lon,
-        battery = excluded.battery,
-        status = excluded.status,
-        last_seen = CURRENT_TIMESTAMP
-''', (data['device_id'], data.get('lat'), data.get('lon'), 
-      data.get('battery'), data.get('status')))
+            lat = excluded.lat,
+            lon = excluded.lon,
+            battery = excluded.battery,
+            status = excluded.status,
+            last_seen = CURRENT_TIMESTAMP
+    ''', (data['device_id'], data.get('lat'), data.get('lon'),
+          data.get('battery'), data.get('status')))
     conn.commit()
     conn.close()
     return jsonify({"success": True}), 200
+
 
 @app.route('/api/devices', methods=['GET'])
 def get_devices():
     """
     Return all known devices with their last heartbeat info.
     Each device includes an 'online' field: true if last_seen
-    is within the last 60 seconds, false otherwise.
+    is within the last 600 seconds, false otherwise. Also includes
+    'seconds_ago': how many seconds since the last update.
     """
     conn = get_db()
     rows = conn.execute('''
         SELECT *,
-           CASE WHEN (julianday('now') - julianday(last_seen)) * 86400 < 60
-                THEN 1 ELSE 0 END AS online
-            FROM devices
-            ORDER BY device_id
+            CASE WHEN (julianday('now') - julianday(last_seen)) * 86400 < 600
+                 THEN 1 ELSE 0 END AS online,
+            CAST((julianday('now') - julianday(last_seen)) * 86400 AS INTEGER) AS seconds_ago
+        FROM devices
+        ORDER BY device_id
     ''').fetchall()
     conn.close()
     return jsonify([dict(row) for row in rows])
