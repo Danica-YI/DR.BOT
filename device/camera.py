@@ -1,3 +1,5 @@
+import sys
+import time
 import cv2
 
 
@@ -10,9 +12,20 @@ def status_color(status):
 
 
 def open_camera(index: int = 0) -> cv2.VideoCapture:
-    cap = cv2.VideoCapture(index)
+    if sys.platform == "win32":
+        cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+    else:
+        cap = cv2.VideoCapture(index)
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open camera {index}")
+
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+    time.sleep(1)
+    for _ in range(10):
+        cap.read()
+
     return cap
 
 

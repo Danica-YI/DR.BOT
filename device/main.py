@@ -101,11 +101,17 @@ class DeviceTriageRunner:
 
     def run(self):
         try:
+            consecutive_failures = 0
             while True:
                 ret, frame = self.camera.read()
                 if not ret:
-                    print("ERROR: camera frame lost")
-                    break
+                    consecutive_failures += 1
+                    print(f"WARNING: camera frame lost ({consecutive_failures})")
+                    if consecutive_failures >= 10:
+                        print("ERROR: camera frame lost too many times, giving up")
+                        break
+                    continue
+                consecutive_failures = 0
 
                 height, width = frame.shape[:2]
                 self.message = ""
@@ -156,6 +162,7 @@ class DeviceTriageRunner:
 
     def _handle_gesture_test(self, frame):
         raw_status = self.classifier.classify(frame)
+        print(f"DEBUG raw_status={raw_status}")
         stable = self.gesture_stabilizer.add(raw_status)
         self.status_text = raw_status
         stable_text = stable.answer if stable else "waiting"
@@ -524,8 +531,6 @@ class DeviceTriageRunner:
             self.assessment["reasons"].append("injury reported")
         if severe_pain:
             self.assessment["reasons"].append("severe pain")
-        if injured or severe_pain:
-            self.assessment["priority"] = "medical"
         no_response_questions = [
             item["question"]
             for item in self.answer_details
@@ -543,7 +548,7 @@ class DeviceTriageRunner:
                     self.assessment["reasons"].append(reason)
         if self.no_response_reason:
             # Silence is an observation for responder review, not a diagnosis.
-            self.assessment["priority"] = "ok"
+            self.assessment["priority"] = "no_response"
             self.assessment["review_status"] = "PRIORITY_REVIEW"
             self.assessment["review_reason"] = self.no_response_reason
             self.assessment["diagnosis"] = None

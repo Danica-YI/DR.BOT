@@ -6,8 +6,6 @@ from collections import Counter, deque
 from dataclasses import dataclass
 
 
-GESTURE_ANSWERS = {"ok": "YES", "no": "NO", "resource": "HELP"}
-
 
 @dataclass(frozen=True)
 class DetectedAnswer:
@@ -27,7 +25,7 @@ class GestureStabilizer:
         self.samples.clear()
 
     def add(self, classifier_status: str | None) -> DetectedAnswer | None:
-        answer = GESTURE_ANSWERS.get(classifier_status)
+        answer = classifier_status
         self.samples.append(answer)
         valid = [sample for sample in self.samples if sample]
         if len(valid) < self.required_matches:

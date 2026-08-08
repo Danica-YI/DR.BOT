@@ -414,7 +414,11 @@ async function updateDevices() {
     devices.forEach(d => {
       if (d.lat == null || d.lon == null) return;
       const isOnline = !!d.online;
-      const marker = L.marker([d.lat, d.lon], {
+      // Small visual offset so the device marker doesn't sit exactly on
+      // top of a report pin at the same coordinates.
+      const offsetLat = d.lat + 0.0012;
+      const offsetLon = d.lon + 0.0012;
+      const marker = L.marker([offsetLat, offsetLon], {
         icon: L.divIcon({
           className: '',
           html: `<div style="
