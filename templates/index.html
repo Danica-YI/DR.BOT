@@ -9,8 +9,8 @@
 <style>
   body {
     font-family: -apple-system, "Segoe UI", Arial, sans-serif;
-    background: #111827;
-    color: #e5e7eb;
+    background: #1e293b;
+    color: #f1f5f9;
     margin: 0;
     padding: 24px;
   }
@@ -19,14 +19,14 @@
     margin-bottom: 4px;
   }
   .subtitle {
-    color: #9ca3af;
+    color: #cbd5e1;
     font-size: 13px;
     margin-bottom: 20px;
   }
   table {
     width: 100%;
     border-collapse: collapse;
-    background: #1f2937;
+    background: #2d3f57;
     border-radius: 8px;
     overflow: hidden;
   }
@@ -34,11 +34,11 @@
     text-align: left;
     padding: 10px 14px;
     font-size: 14px;
-    border-bottom: 1px solid #374151;
+    border-bottom: 1px solid #475569;
   }
   th {
-    background: #111827;
-    color: #9ca3af;
+    background: #1e293b;
+    color: #cbd5e1;
     font-weight: 600;
     text-transform: uppercase;
     font-size: 11px;
@@ -52,9 +52,10 @@
     font-size: 12px;
     font-weight: 600;
   }
-  .badge.medical { background: #7f1d1d; color: #fecaca; }
+  .badge.no_response { background: #2d3f57; color: #d1d5db; border: 1px solid #4b5563; }
+  .badge.both { background: #7f1d1d; color: #fecaca; }
+  .badge.medical { background: #7c2d12; color: #fed7aa; }
   .badge.resource { background: #78350f; color: #fde68a; }
-  .badge.ok { background: #14532d; color: #bbf7d0; }
   .empty {
     padding: 40px;
     text-align: center;
@@ -67,15 +68,15 @@
     flex-wrap: wrap;
   }
   .filter-btn {
-    background: #1f2937;
-    color: #9ca3af;
-    border: 1px solid #374151;
+    background: #2d3f57;
+    color: #cbd5e1;
+    border: 1px solid #475569;
     border-radius: 999px;
     padding: 6px 14px;
     font-size: 13px;
     cursor: pointer;
   }
-  .filter-btn:hover { background: #374151; }
+  .filter-btn:hover { background: #475569; }
   .filter-btn.active {
     background: #2563eb;
     color: white;
@@ -84,7 +85,7 @@
   tr.resolved { opacity: 0.45; }
   tr.resolved td { text-decoration: line-through; }
   .resolve-btn {
-    background: #374151;
+    background: #475569;
     color: #e5e7eb;
     border: none;
     border-radius: 6px;
@@ -95,7 +96,7 @@
   .resolve-btn:hover { background: #4b5563; }
   .resolve-btn.undo {
     background: transparent;
-    color: #9ca3af;
+    color: #cbd5e1;
     text-decoration: underline;
   }
   #map {
@@ -103,12 +104,12 @@
     height: 350px;
     border-radius: 8px;
     margin-bottom: 20px;
-    border: 1px solid #374151;
+    border: 1px solid #475569;
   }
   .map-popup { font-size: 13px; line-height: 1.5; }
   .map-popup .popup-status { font-weight: 600; }
   .section-label {
-    color: #9ca3af;
+    color: #cbd5e1;
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -122,8 +123,8 @@
     flex-wrap: wrap;
   }
   .stat-card {
-    background: #1f2937;
-    border: 1px solid #374151;
+    background: #2d3f57;
+    border: 1px solid #475569;
     border-radius: 8px;
     padding: 12px 20px;
     display: flex;
@@ -144,7 +145,7 @@
   }
   .stat-label {
     font-size: 11px;
-    color: #9ca3af;
+    color: #cbd5e1;
     text-transform: uppercase;
   }
   .device-panel {
@@ -153,28 +154,27 @@
     margin-bottom: 16px;
     flex-wrap: wrap;
   }
-  .device-card{
-    background: #1f2937;
-    border: 1px solid #374151;
+  .device-card {
+    background: #2d3f57;
+    border: 1px solid #475569;
     border-radius: 8px;
     padding: 12px 16px;
-    min-width: 180px;
-    flex: 1;
+    min-width: 160px;
+    max-width: 250px;
+    flex: 1 1 18%;
   }
-  .device-card.offline{
+  .device-card.offline {
     opacity: 0.45;
     border-color: #ef4444;
   }
-  .device-header{
+  .device-header {
     display: flex;
     justify-content: space-between;
-    align-items:center;
+    align-items: center;
     margin-bottom: 8px;
   }
   .device-name {
-    font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 999px;
+    font-size: 14px;
     font-weight: 600;
   }
   .device-online {
@@ -183,16 +183,16 @@
     border-radius: 999px;
     font-weight: 600;
   }
-  .device-online.on{ background:#14532d; color: #bbf7d0; }
-  .device-online.off{ background: #7f1d1d; color: #fecaca; }
+  .device-online.on { background: #14532d; color: #bbf7d0; }
+  .device-online.off { background: #7f1d1d; color: #fecaca; }
   .device-detail {
     font-size: 12px;
-    color: #9ca3af;
+    color: #cbd5e1;
     margin-bottom: 2px;
   }
   .battery-bar {
     height: 6px;
-    background: #374151;
+    background: #475569;
     border-radius: 3px;
     margin-top: 6px;
     overflow: hidden;
@@ -209,9 +209,10 @@
   <div class="subtitle">Auto-refreshes every 3 seconds</div>
 
   <div class="stats-bar" id="stats-bar">
-    <div class="stat-card"><div class="stat-dot" style="background:#ef4444"></div><div><div class="stat-number" id="stat-medical">0</div><div class="stat-label">Medical</div></div></div>
-    <div class="stat-card"><div class="stat-dot" style="background:#f59e0b"></div><div><div class="stat-number" id="stat-resource">0</div><div class="stat-label">Resources</div></div></div>
-    <div class="stat-card"><div class="stat-dot" style="background:#22c55e"></div><div><div class="stat-number" id="stat-ok">0</div><div class="stat-label">OK</div></div></div>
+    <div class="stat-card"><div class="stat-dot" style="background:#94a3b8"></div><div><div class="stat-number" id="stat-no_response">0</div><div class="stat-label">No Response</div></div></div>
+    <div class="stat-card"><div class="stat-dot" style="background:#ef4444"></div><div><div class="stat-number" id="stat-both">0</div><div class="stat-label">Both Need</div></div></div>
+    <div class="stat-card"><div class="stat-dot" style="background:#f97316"></div><div><div class="stat-number" id="stat-medical">0</div><div class="stat-label">Medical</div></div></div>
+    <div class="stat-card"><div class="stat-dot" style="background:#eab308"></div><div><div class="stat-number" id="stat-resource">0</div><div class="stat-label">Resources</div></div></div>
   </div>
 
   <div class="filters" id="resolved-filters">
@@ -221,16 +222,17 @@
   </div>
   <div class="filters" id="status-filters">
     <button class="filter-btn active" data-status="all">All statuses</button>
+    <button class="filter-btn" data-status="no_response">No Response</button>
+    <button class="filter-btn" data-status="both">Both Need</button>
     <button class="filter-btn" data-status="medical">Needs Medical</button>
     <button class="filter-btn" data-status="resource">Needs Resources</button>
-    <button class="filter-btn" data-status="ok">OK</button>
   </div>
 
   <div id="map"></div>
 
   <div class="section-label">Devices</div>
   <div class="device-panel" id="device-panel">
-    <div class="device-card"><div class="device-detail">No devices reporting yet...</div></div>
+    <div class="device-card"><div class="device-detail">No devices reporting yet…</div></div>
   </div>
 
   <div class="section-label">Reports</div>
@@ -251,15 +253,25 @@
 
 <script>
 const statusLabels = {
+  no_response: "No Response",
+  both: "Both Need",
   medical: "Needs Medical",
-  resource: "Needs Resources",
-  ok: "OK"
+  resource: "Needs Resources"
 };
 
 const statusColors = {
-  medical: '#ef4444',
-  resource: '#f59e0b',
-  ok: '#22c55e'
+  no_response: '#94a3b8',
+  both: '#ef4444',
+  medical: '#f97316',
+  resource: '#eab308'
+};
+
+// Higher number = more urgent. Used for sorting only, not displayed directly.
+const statusPriority = {
+  no_response: 5,
+  both: 4,
+  medical: 3,
+  resource: 2
 };
 
 // Initialize map centered on Brisbane
@@ -272,24 +284,33 @@ let markers = [];
 let deviceMarkers = [];
 
 function updateMap(reports) {
-  // Clear old markers
   markers.forEach(m => map.removeLayer(m));
   markers = [];
 
   const validReports = reports.filter(r => r.lat != null && r.lon != null);
 
   validReports.forEach(r => {
-    const color = statusColors[r.status] || '#9ca3af';
+    const color = statusColors[r.status] || '#cbd5e1';
     const label = statusLabels[r.status] || r.status;
     const isResolved = !!r.resolved;
+    const size = isResolved ? 26 : 34;
 
-    const marker = L.circleMarker([r.lat, r.lon], {
-      radius: isResolved ? 6 : 10,
-      fillColor: color,
-      color: isResolved ? '#6b7280' : '#ffffff',
-      weight: 2,
-      opacity: isResolved ? 0.4 : 1,
-      fillOpacity: isResolved ? 0.3 : 0.85
+    const pinSvg = `
+      <svg width="${size}" height="${size * 1.3}" viewBox="0 0 24 32" xmlns="http://www.w3.org/2000/svg"
+           style="opacity:${isResolved ? 0.45 : 1}; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4));">
+        <path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 20 12 20s12-11 12-20c0-6.6-5.4-12-12-12z"
+              fill="${color}" stroke="#ffffff" stroke-width="1.5"/>
+        <circle cx="12" cy="12" r="4.5" fill="#ffffff"/>
+      </svg>
+    `;
+
+    const marker = L.marker([r.lat, r.lon], {
+      icon: L.divIcon({
+        className: '',
+        html: pinSvg,
+        iconSize: [size, size * 1.3],
+        iconAnchor: [size / 2, size * 1.3]
+      })
     }).addTo(map);
 
     marker.bindPopup(`
@@ -304,14 +325,13 @@ function updateMap(reports) {
     markers.push(marker);
   });
 
-  // Auto-fit map to show all markers
   if (validReports.length > 0) {
     const bounds = L.latLngBounds(validReports.map(r => [r.lat, r.lon]));
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
   }
 }
 
-let currentResolvedFilter = 'unresolved'; // 'unresolved' | 'resolved' | 'all'
+let currentResolvedFilter = 'unresolved';
 let currentStatusFilter = 'all';
 
 document.getElementById('resolved-filters').addEventListener('click', (e) => {
@@ -344,9 +364,10 @@ async function updateStats() {
   try {
     const res = await fetch('/api/reports');
     const all = await res.json();
+    document.getElementById('stat-no_response').textContent = all.filter(r => r.status === 'no_response').length;
+    document.getElementById('stat-both').textContent = all.filter(r => r.status === 'both').length;
     document.getElementById('stat-medical').textContent = all.filter(r => r.status === 'medical').length;
     document.getElementById('stat-resource').textContent = all.filter(r => r.status === 'resource').length;
-    document.getElementById('stat-ok').textContent = all.filter(r => r.status === 'ok').length;
   } catch (err) {}
 }
 
@@ -354,24 +375,29 @@ const deviceStatusLabels = {
   scanning: 'Scanning',
   locked: 'Locked on target',
   idle: 'Idle'
+};
+
+function formatSecondsAgo(seconds) {
+  if (seconds == null) return '—';
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  return `${Math.floor(seconds / 3600)}h ago`;
 }
 
 async function updateDevices() {
-  try{
+  try {
     const res = await fetch('/api/devices');
     const devices = await res.json();
     const panel = document.getElementById('device-panel');
 
-    // Clear old device markers from map
     deviceMarkers.forEach(m => map.removeLayer(m));
     deviceMarkers = [];
 
     if (devices.length === 0) {
-      panel.innerHTML = '<div class="device-card"><div class="device-detail">No devices reporting yet...</div></div>';
+      panel.innerHTML = '<div class="device-card"><div class="device-detail">No devices reporting yet…</div></div>';
       return;
     }
 
-    // Draw device markers on map
     devices.forEach(d => {
       if (d.lat == null || d.lon == null) return;
       const isOnline = !!d.online;
@@ -385,7 +411,7 @@ async function updateDevices() {
             font-weight: 700;
             padding: 3px 6px;
             border-radius: 4px;
-            border: 2px solid ${isOnline ? '#ffffff' : '#9ca3af'};
+            border: 2px solid ${isOnline ? '#ffffff' : '#cbd5e1'};
             white-space: nowrap;
             opacity: ${isOnline ? 1 : 0.5};
           ">${d.device_id}</div>`,
@@ -394,7 +420,6 @@ async function updateDevices() {
         })
       }).addTo(map);
 
-      const batColor = d.battery > 50 ? '#22c55e' : d.battery > 20 ? '#f59e0b' : '#ef4444';
       const statusText = deviceStatusLabels[d.status] || d.status || '—';
       marker.bindPopup(`
         <div class="map-popup">
@@ -402,38 +427,39 @@ async function updateDevices() {
           <div>Status: ${statusText}</div>
           <div>Battery: ${d.battery != null ? d.battery + '%' : '—'}</div>
           <div>${isOnline ? '🟢 Online' : '🔴 Offline'}</div>
+          <div>Updated: ${formatSecondsAgo(d.seconds_ago)}</div>
         </div>
       `);
       deviceMarkers.push(marker);
     });
 
-    // Render cards
     panel.innerHTML = devices.map(d => {
-        const isOnline = !!d.online;
-        const bat = d.battery != null ? d.battery : '—';
-        const batColor = d.battery > 50 ? '#22c55e' : d.battery > 20 ? '#f59e0b' : '#ef4444';
-        const statusText = deviceStatusLabels[d.status] || d.status || '—';
-        return `
-          <div class="device-card ${isOnline ? '' : 'offline'}">
-            <div class="device-header">
-              <span class="device-name">${d.device_id}</span>
-              <span class="device-online ${isOnline ? 'on' : 'off'}">${isOnline ? 'Online' : 'Offline'}</span>
-            </div>
-            <div class="device-detail">Status: ${statusText}</div>
-            <div class="device-detail">Battery: ${bat}%</div>
-            <div class="battery-bar">
-              <div class="battery-fill" style="width:${d.battery || 0}%; background:${batColor}"></div>
-            </div>
+      const isOnline = !!d.online;
+      const bat = d.battery != null ? d.battery : '—';
+      const batColor = d.battery > 50 ? '#22c55e' : d.battery > 20 ? '#f59e0b' : '#ef4444';
+      const statusText = deviceStatusLabels[d.status] || d.status || '—';
+      return `
+        <div class="device-card ${isOnline ? '' : 'offline'}">
+          <div class="device-header">
+            <span class="device-name">${d.device_id}</span>
+            <span class="device-online ${isOnline ? 'on' : 'off'}">${isOnline ? 'Online' : 'Offline'}</span>
           </div>
-        `;
-      }).join('');
+          <div class="device-detail">Status: ${statusText}</div>
+          <div class="device-detail">Battery: ${bat}%</div>
+          <div class="device-detail" style="opacity:0.7">Updated ${formatSecondsAgo(d.seconds_ago)}</div>
+          <div class="battery-bar">
+            <div class="battery-fill" style="width:${d.battery || 0}%; background:${batColor}"></div>
+          </div>
+        </div>
+      `;
+    }).join('');
   } catch (err) {}
 }
 
 async function refresh() {
   try {
     updateStats();
-        updateDevices();
+    updateDevices();
 
     const params = new URLSearchParams();
     if (currentResolvedFilter === 'unresolved') params.set('resolved', 'false');
@@ -442,6 +468,14 @@ async function refresh() {
 
     const res = await fetch(`/api/reports?${params.toString()}`);
     const reports = await res.json();
+
+    // Sort by urgency (highest priority first), most recent within same priority
+    reports.sort((a, b) => {
+      const priorityDiff = (statusPriority[b.status] || 0) - (statusPriority[a.status] || 0);
+      if (priorityDiff !== 0) return priorityDiff;
+      return new Date(b.timestamp) - new Date(a.timestamp);
+    });
+
     const body = document.getElementById('report-body');
 
     updateMap(reports);
