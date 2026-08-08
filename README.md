@@ -5,11 +5,30 @@ Simple Flask backend + live dashboard for the Triage Companion hackathon project
 ## Setup
 
 ```bash
-pip install flask
+pip install flask opencv-python ultralytics mediapipe requests
 python3 app.py
 ```
 
 Then open http://localhost:5000
+
+## Device integration
+
+This repository includes a simple demo script for on-device integration using YOLO person detection and MediaPipe Pose.
+
+Run the dashboard backend first, then start the device integration script:
+
+```bash
+python device.py
+```
+
+The script will:
+
+- capture camera frames with OpenCV
+- detect a person using YOLO
+- center the view on the person
+- prompt the person for a gesture/pose
+- classify status using MediaPipe Pose landmarks
+- POST the result to `/api/report`
 
 ## API
 
