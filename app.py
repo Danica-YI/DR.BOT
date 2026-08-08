@@ -84,8 +84,8 @@ def receive_report():
     if missing:
         return jsonify({"success": False, "error": f"Missing fields: {missing}"}), 400
 
-    if data['status'] not in ('no_response', 'both', 'medical', 'resource', 'ok'):
-        return jsonify({"success": False, "error": "status must be one of: no_response, both, medical, resource, ok"}), 400
+    if data['status'] not in ('no_response', 'both', 'medical', 'resource'):
+        return jsonify({"success": False, "error": "status must be one of: no_response, both, medical, resource"}), 400
 
     location = data.get('location') or {}
     lat = location.get('lat')
@@ -256,7 +256,7 @@ def get_reports():
     params = []
 
     status = request.args.get('status')
-    if status in ('no_response', 'both', 'medical', 'resource', 'ok'):
+    if status in ('no_response', 'both', 'medical', 'resource'):
         query += ' AND status = ?'
         params.append(status)
 
