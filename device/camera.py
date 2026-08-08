@@ -16,6 +16,8 @@ def draw_overlay(frame, state: str, message: str, bbox=None, status=None) -> Non
         color = (0, 255, 255)
     elif status == "ok":
         color = (0, 200, 0)
+    elif status == "no":
+        color = (0, 165, 255)
 
     if bbox is not None:
         x1, y1, x2, y2 = bbox
