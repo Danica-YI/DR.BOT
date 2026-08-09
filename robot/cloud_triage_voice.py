@@ -213,7 +213,6 @@ class CloudTriageInterviewer:
 
     def _build_unresponsive_assessment(self, answer_details: list[dict[str, Any]]) -> dict[str, Any]:
         assessment = build_triage_assessment(
-            initial_status="ok",
             response_type="unresponsive",
             can_walk=True,
         )
@@ -236,12 +235,12 @@ class CloudTriageInterviewer:
     ) -> dict[str, Any]:
         can_walk = answers.get("can_walk")
         assessment = build_triage_assessment(
-            initial_status="resource" if resource_requested else "ok",
             response_type="responding",
             can_walk=can_walk is not False,
             heavy_bleeding=answers.get("heavy_bleeding") is True,
             breathing_difficulty=answers.get("breathing_difficulty") is True,
             trapped=answers.get("trapped") is True,
+            needs_supply=resource_requested,
         )
         no_response_questions = [
             item["question"]

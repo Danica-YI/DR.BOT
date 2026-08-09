@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import time
 from enum import Enum, auto
@@ -25,6 +26,7 @@ from ..config import (
 from ..hardware.motors import MotorController
 from ..location_provider import LocationProvider
 from ..perception import PerceptionClient
+from ..report import create_incident_report
 from ..storage.offline_queue import OfflineQueue
 from ..triage import TriageInteraction
 from ..communication import ApiClient, SyncManager
@@ -157,6 +159,7 @@ class StateMachine:
         self.center_frames = 0
         self.target_lock_frames = 0
         self.target_frame_uploaded = False
+        self.pending_report_photo: str | None = None
         self.active_detection: dict[str, Any] | None = None
         self.assessment: dict[str, Any] | None = None
         self.logger.info("Initialized state machine in %s", self.current_state.name)
@@ -356,6 +359,8 @@ class StateMachine:
             if self.assessment is None:
                 self.logger.warning("No assessment available to report.")
             else:
+                if self.pending_report_photo and "photo" not in self.assessment:
+                    self.assessment["photo"] = self.pending_report_photo
                 success, response = post_triage_assessment(
                     self.api_client.base_url,
                     ROBOT_ID,
@@ -375,6 +380,7 @@ class StateMachine:
         self.center_frames = 0
         self.target_lock_frames = 0
         self.target_frame_uploaded = False
+        self.pending_report_photo = None
         self.transition(RobotState.SEARCHING)
 
     def _capture_target_frame_if_ready(self, frame: Any, detection: dict[str, Any]) -> None:
@@ -384,6 +390,9 @@ class StateMachine:
         try:
             image_bytes = self.camera.encode_frame(frame, ".jpg", TARGET_CAPTURE_JPEG_QUALITY)
             metadata = build_target_frame_metadata(detection)
+            self.pending_report_photo = (
+                f"data:image/jpeg;base64,{base64.b64encode(image_bytes).decode('ascii')}"
+            )
             success, response = post_target_frame(
                 self.api_client.base_url,
                 ROBOT_ID,
@@ -394,9 +403,12 @@ class StateMachine:
             )
             if success:
                 self.logger.info("Target frame uploaded successfully: %s", response)
-                self.target_frame_uploaded = True
             else:
-                self.logger.warning("Target frame upload failed: %s", response)
+                self.logger.info(
+                    "Deferring target frame attachment to final report payload: %s",
+                    response,
+                )
+            self.target_frame_uploaded = True
         except Exception as exc:
             self.logger.warning("Target frame capture/upload failed: %s", exc)
 

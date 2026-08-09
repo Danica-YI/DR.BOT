@@ -36,6 +36,11 @@ class TriageInteraction:
             ("breathing_difficulty", "Are you having trouble breathing?"),
             ("trapped", "Are you trapped?"),
         ]
+        self.voice_mode_instruction = "Please answer YES or NO."
+        self.gesture_mode_instruction = (
+            "For YES, raise both arms above your head and form a large circle. "
+            "For NO, cross both arms in front of your chest."
+        )
         self.voice_timeout = VOICE_TIMEOUT_SECONDS
         self.gesture_timeout = GESTURE_TIMEOUT_SECONDS
 
@@ -83,7 +88,6 @@ class TriageInteraction:
 
         if initial_answer["answer"] is None:
             assessment = build_triage_assessment(
-                initial_status="ok",
                 response_type="unresponsive",
                 can_walk=True,
             )
@@ -101,6 +105,7 @@ class TriageInteraction:
         interaction_mode = "speech" if initial_answer["source"] == "voice" else "gesture"
         if initial_answer["answer"] == "HELP":
             resource_requested = True
+        self._play_mode_instruction(interaction_mode)
 
         for question in self.questions:
             result = self._ask_question(question, frame_provider, interaction_mode=interaction_mode)
@@ -117,12 +122,12 @@ class TriageInteraction:
             if item.get("channel_status") == "NO_RESPONSE"
         ]
         assessment = build_triage_assessment(
-            initial_status="resource" if resource_requested else "ok",
             response_type="responding",
             can_walk=can_walk is not False,
             heavy_bleeding=answers.get("heavy_bleeding") is True,
             breathing_difficulty=answers.get("breathing_difficulty") is True,
             trapped=answers.get("trapped") is True,
+            needs_supply=resource_requested,
         )
         assessment["response_detected"] = True
         assessment["interaction_mode"] = interaction_mode
@@ -147,8 +152,8 @@ class TriageInteraction:
     ) -> dict[str, Any]:
         key, prompt = question
         voice_result = None
+        self.voice.say(prompt)
         if interaction_mode != "gesture":
-            self.voice.say(prompt)
             voice_result = self.voice.listen_yes_no(self.voice_timeout)
             if voice_result.answer:
                 return {
@@ -194,7 +199,6 @@ class TriageInteraction:
 
     def _mock_response(self) -> dict:
         assessment = build_triage_assessment(
-            initial_status="ok",
             response_type="responding",
             can_walk=False,
             heavy_bleeding=True,
@@ -216,6 +220,10 @@ class TriageInteraction:
         self.classifier = PoseClassifier()
         self.gesture_stabilizer = GestureStabilizer()
         self.summary_client = SummaryClient()
+
+    def _play_mode_instruction(self, interaction_mode: str) -> None:
+        instruction = self.gesture_mode_instruction if interaction_mode == "gesture" else self.voice_mode_instruction
+        self.voice.say(instruction)
 
     def close(self) -> None:
         if not self.use_mock and hasattr(self, "classifier"):

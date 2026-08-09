@@ -18,6 +18,7 @@ class Camera:
         self.use_mock = MOCK_CAMERA if use_mock is None else use_mock
         self.camera_index = CAMERA_INDEX if camera_index is None else camera_index
         self.cap = None
+        self.last_frame = None
 
         if self.use_mock:
             self.logger.info("Mock camera mode active; using placeholder frame source.")
@@ -36,7 +37,8 @@ class Camera:
 
     def _get_mock_frame(self) -> bytes:
         self.logger.debug("Returning mock camera frame payload.")
-        return b"MOCK_CAMERA_FRAME"
+        self.last_frame = b"MOCK_CAMERA_FRAME"
+        return self.last_frame
 
     def _get_real_frame(self):
         if self.cap is None:
@@ -44,6 +46,7 @@ class Camera:
         ok, frame = self.cap.read()
         if not ok:
             raise RuntimeError("Unable to read frame from camera.")
+        self.last_frame = frame
         return frame
 
     def adjust_view(self, direction: str) -> None:

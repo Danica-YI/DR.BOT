@@ -18,11 +18,6 @@
     font-size: 20px;
     margin-bottom: 4px;
   }
-  .subtitle {
-    color: #cbd5e1;
-    font-size: 13px;
-    margin-bottom: 20px;
-  }
   table {
     width: 100%;
     border-collapse: collapse;
@@ -84,6 +79,11 @@
   }
   tr.resolved { opacity: 0.45; }
   tr.resolved td { text-decoration: line-through; }
+  tr.selected-report {
+    outline: 2px solid #60a5fa;
+    box-shadow: inset 0 0 0 2px rgba(96, 165, 250, 0.25);
+    background: #35506f;
+  }
   .resolve-btn {
     background: #475569;
     color: #e5e7eb;
@@ -114,6 +114,15 @@
     max-width: 220px;
     border-radius: 6px;
     display: block;
+  }
+  .report-thumb {
+    width: 72px;
+    height: 48px;
+    object-fit: cover;
+    border-radius: 6px;
+    display: block;
+    border: 1px solid #475569;
+    background: #1e293b;
   }
   .section-label {
     display: block;
@@ -175,6 +184,12 @@
     min-width: 160px;
     max-width: 250px;
     flex: 1 1 18%;
+    cursor: pointer;
+  }
+  .device-card.selected {
+    outline: 2px solid #60a5fa;
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.18);
+    background: #35506f;
   }
   .device-card.offline {
     opacity: 0.45;
@@ -244,7 +259,7 @@
 
   <div class="section-label">Devices</div>
   <div class="device-panel" id="device-panel">
-    <div class="device-card"><div class="device-detail">No devices reporting yet…</div></div>
+    <div class="device-card"><div class="device-detail">No devices reporting yet...</div></div>
   </div>
 
   <div class="section-label">Reports</div>
@@ -255,11 +270,12 @@
         <th>Device</th>
         <th>Time</th>
         <th>Location</th>
+        <th>Photo</th>
         <th>Actions</th>
       </tr>
     </thead>
     <tbody id="report-body">
-      <tr><td colspan="5" class="empty">Waiting for reports…</td></tr>
+      <tr><td colspan="6" class="empty">Waiting for reports...</td></tr>
     </tbody>
   </table>
 
@@ -278,7 +294,6 @@ const statusColors = {
   resource: '#eab308'
 };
 
-// Higher number = more urgent. Used for sorting only, not displayed directly.
 const statusPriority = {
   no_response: 5,
   both: 4,
@@ -286,40 +301,200 @@ const statusPriority = {
   resource: 2
 };
 
-// Initialize map centered on Brisbane
+const deviceStatusLabels = {
+  scanning: 'Scanning',
+  locked: 'Locked on target',
+  idle: 'Idle'
+};
+
 const map = L.map('map').setView([-27.47, 153.02], 13);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap'
 }).addTo(map);
 
-let markers = [];
+let reportMarkers = [];
 let deviceMarkers = [];
+let reportMarkerById = new Map();
+let deviceMarkerById = new Map();
+let currentReports = [];
+let currentDevices = [];
+let currentResolvedFilter = 'unresolved';
+let currentStatusFilter = 'all';
+let selectionState = {
+  selectedEntityType: null,
+  selectedReportId: null,
+  selectedRobotId: null
+};
+const popupPlaceholderImage = "data:image/svg+xml;utf8," + encodeURIComponent(`
+  <svg xmlns="http://www.w3.org/2000/svg" width="220" height="140" viewBox="0 0 220 140">
+    <rect width="220" height="140" rx="10" fill="#334155"/>
+    <rect x="12" y="12" width="196" height="116" rx="8" fill="#1e293b" stroke="#64748b" stroke-width="2"/>
+    <circle cx="82" cy="58" r="16" fill="#64748b"/>
+    <path d="M38 104l34-28 24 18 30-36 56 46H38z" fill="#475569"/>
+    <text x="110" y="124" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="13" fill="#cbd5e1">
+      Image unavailable
+    </text>
+  </svg>
+`);
+
+function toNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function isValidCoordinate(lat, lon) {
+  const validLat = toNumber(lat);
+  const validLon = toNumber(lon);
+  return validLat !== null && validLon !== null && Math.abs(validLat) <= 90 && Math.abs(validLon) <= 180;
+}
+
+function formatSecondsAgo(seconds) {
+  if (seconds == null) return 'Unknown';
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  return `${Math.floor(seconds / 3600)}h ago`;
+}
+
+function createReportIcon(report, selected = false) {
+  const color = statusColors[report.status] || '#cbd5e1';
+  const isResolved = !!report.resolved;
+  const size = selected ? (isResolved ? 34 : 42) : (isResolved ? 26 : 34);
+  const ring = selected
+    ? `<circle cx="12" cy="12" r="9.5" fill="none" stroke="#93c5fd" stroke-width="3" opacity="0.75"/>`
+    : '';
+
+  return `
+    <svg width="${size}" height="${size * 1.3}" viewBox="0 0 24 32" xmlns="http://www.w3.org/2000/svg"
+         style="opacity:${isResolved ? 0.6 : 1}; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4)); overflow: visible;">
+      <path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 20 12 20s12-11 12-20c0-6.6-5.4-12-12-12z"
+            fill="${color}" stroke="${selected ? '#bfdbfe' : '#ffffff'}" stroke-width="${selected ? 2.4 : 1.5}"/>
+      ${ring}
+      <circle cx="12" cy="12" r="4.5" fill="#ffffff"/>
+    </svg>
+  `;
+}
+
+function createDeviceIcon(device, selected = false) {
+  const isOnline = !!device.online;
+  return `<div style="
+      background: ${selected ? '#1d4ed8' : (isOnline ? '#3b82f6' : '#6b7280')};
+      color: white;
+      font-size: ${selected ? '11px' : '10px'};
+      font-weight: 700;
+      padding: ${selected ? '5px 8px' : '3px 6px'};
+      border-radius: 6px;
+      border: ${selected ? '3px solid #bfdbfe' : `2px solid ${isOnline ? '#ffffff' : '#cbd5e1'}`};
+      white-space: nowrap;
+      opacity: ${isOnline ? 1 : 0.5};
+      box-shadow: ${selected ? '0 0 0 4px rgba(147,197,253,0.25)' : 'none'};
+    ">${device.device_id}</div>`;
+}
+
+function buildPopupPhoto(photo) {
+  if (!photo) {
+    return `<img src="${popupPlaceholderImage}" class="popup-photo" alt="Detection photo unavailable" />`;
+  }
+  return `<img src="${photo}" class="popup-photo" alt="Detection photo" onerror="this.onerror=null;this.src='${popupPlaceholderImage}'" />`;
+}
+
+function buildReportThumbnail(photo) {
+  const src = photo || popupPlaceholderImage;
+  return `<img src="${src}" class="report-thumb" alt="Report photo" onerror="this.onerror=null;this.src='${popupPlaceholderImage}'" />`;
+}
+
+function focusMarker(marker) {
+  if (!marker) return;
+  const latlng = marker.getLatLng();
+  map.flyTo(latlng, Math.max(map.getZoom(), 15), { duration: 0.4 });
+  if (marker.getPopup()) marker.openPopup();
+}
+
+function updateSelectionStyles() {
+  reportMarkerById.forEach((marker, reportId) => {
+    const report = currentReports.find(item => String(item.id) === String(reportId));
+    if (!report) return;
+    const selected = String(selectionState.selectedReportId) === String(reportId);
+    const isResolved = !!report.resolved;
+    const size = selected ? (isResolved ? 34 : 42) : (isResolved ? 26 : 34);
+    marker.setIcon(L.divIcon({
+      className: '',
+      html: createReportIcon(report, selected),
+      iconSize: [size, size * 1.3],
+      iconAnchor: [size / 2, size * 1.3]
+    }));
+    marker.setZIndexOffset(selected ? 1000 : 0);
+  });
+
+  deviceMarkerById.forEach((marker, deviceId) => {
+    const device = currentDevices.find(item => String(item.device_id) === String(deviceId));
+    if (!device) return;
+    const selected = String(selectionState.selectedRobotId) === String(deviceId);
+    marker.setIcon(L.divIcon({
+      className: '',
+      html: createDeviceIcon(device, selected),
+      iconSize: null,
+      iconAnchor: [20, 20]
+    }));
+    marker.setZIndexOffset(selected ? 1000 : 0);
+  });
+
+  document.querySelectorAll('#report-body tr[data-report-id]').forEach(row => {
+    row.classList.toggle('selected-report', String(row.dataset.reportId) === String(selectionState.selectedReportId));
+  });
+
+  document.querySelectorAll('#device-panel .device-card[data-device-id]').forEach(card => {
+    card.classList.toggle('selected', String(card.dataset.deviceId) === String(selectionState.selectedRobotId));
+  });
+}
+
+function selectReport(reportId, options = {}) {
+  const report = currentReports.find(item => String(item.id) === String(reportId));
+  selectionState.selectedEntityType = 'report';
+  selectionState.selectedReportId = String(reportId);
+  if (report) selectionState.selectedRobotId = String(report.device_id);
+  updateSelectionStyles();
+
+  if (options.scroll !== false) {
+    const row = document.querySelector(`#report-body tr[data-report-id="${reportId}"]`);
+    if (row) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
+  const marker = reportMarkerById.get(String(reportId));
+  if (marker) focusMarker(marker);
+}
+
+function selectDevice(deviceId, options = {}) {
+  selectionState.selectedEntityType = 'robot';
+  selectionState.selectedRobotId = String(deviceId);
+  updateSelectionStyles();
+
+  if (options.scroll !== false) {
+    const card = document.querySelector(`#device-panel .device-card[data-device-id="${deviceId}"]`);
+    if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
+  const marker = deviceMarkerById.get(String(deviceId));
+  if (marker) focusMarker(marker);
+}
 
 function updateMap(reports) {
-  markers.forEach(m => map.removeLayer(m));
-  markers = [];
+  reportMarkers.forEach(marker => map.removeLayer(marker));
+  reportMarkers = [];
+  reportMarkerById = new Map();
 
-  const validReports = reports.filter(r => r.lat != null && r.lon != null);
+  const validReports = reports.filter(report => isValidCoordinate(report.lat, report.lon));
 
-  validReports.forEach(r => {
-    const color = statusColors[r.status] || '#cbd5e1';
-    const label = statusLabels[r.status] || r.status;
-    const isResolved = !!r.resolved;
-    const size = isResolved ? 26 : 34;
+  validReports.forEach(report => {
+    const selected = String(selectionState.selectedReportId) === String(report.id);
+    const isResolved = !!report.resolved;
+    const size = selected ? (isResolved ? 34 : 42) : (isResolved ? 26 : 34);
+    const color = statusColors[report.status] || '#cbd5e1';
+    const label = statusLabels[report.status] || report.status;
 
-    const pinSvg = `
-      <svg width="${size}" height="${size * 1.3}" viewBox="0 0 24 32" xmlns="http://www.w3.org/2000/svg"
-           style="opacity:${isResolved ? 0.45 : 1}; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4));">
-        <path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 20 12 20s12-11 12-20c0-6.6-5.4-12-12-12z"
-              fill="${color}" stroke="#ffffff" stroke-width="1.5"/>
-        <circle cx="12" cy="12" r="4.5" fill="#ffffff"/>
-      </svg>
-    `;
-
-    const marker = L.marker([r.lat, r.lon], {
+    const marker = L.marker([toNumber(report.lat), toNumber(report.lon)], {
       icon: L.divIcon({
         className: '',
-        html: pinSvg,
+        html: createReportIcon(report, selected),
         iconSize: [size, size * 1.3],
         iconAnchor: [size / 2, size * 1.3]
       })
@@ -328,38 +503,43 @@ function updateMap(reports) {
     marker.bindPopup(`
       <div class="map-popup">
         <div class="popup-status" style="color:${color}">${label}</div>
-        <div>Device: ${r.device_id}</div>
-        <div>Time: ${r.timestamp}</div>
-        <div>${isResolved ? '✓ Resolved' : 'Awaiting response'}</div>
-        ${r.photo ? `<img src="${r.photo}" class="popup-photo" alt="Detection photo" />` : ''}
+        <div>Report ID: ${report.id}</div>
+        <div>Device: ${report.device_id}</div>
+        <div>Time: ${report.timestamp}</div>
+        <div>${isResolved ? 'Resolved' : 'Awaiting response'}</div>
+        ${buildPopupPhoto(report.photo)}
       </div>
     `);
+    marker.on('click', () => selectReport(report.id));
 
-    markers.push(marker);
+    reportMarkers.push(marker);
+    reportMarkerById.set(String(report.id), marker);
   });
 
-  if (validReports.length > 0) {
-    const bounds = L.latLngBounds(validReports.map(r => [r.lat, r.lon]));
+  if (
+    validReports.length > 0 &&
+    selectionState.selectedEntityType == null &&
+    selectionState.selectedReportId == null &&
+    selectionState.selectedRobotId == null
+  ) {
+    const bounds = L.latLngBounds(validReports.map(report => [toNumber(report.lat), toNumber(report.lon)]));
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
   }
 }
 
-let currentResolvedFilter = 'unresolved';
-let currentStatusFilter = 'all';
-
-document.getElementById('resolved-filters').addEventListener('click', (e) => {
-  if (!e.target.matches('.filter-btn')) return;
-  currentResolvedFilter = e.target.dataset.resolved;
-  document.querySelectorAll('#resolved-filters .filter-btn').forEach(b => b.classList.remove('active'));
-  e.target.classList.add('active');
+document.getElementById('resolved-filters').addEventListener('click', (event) => {
+  if (!event.target.matches('.filter-btn')) return;
+  currentResolvedFilter = event.target.dataset.resolved;
+  document.querySelectorAll('#resolved-filters .filter-btn').forEach(button => button.classList.remove('active'));
+  event.target.classList.add('active');
   refresh();
 });
 
-document.getElementById('status-filters').addEventListener('click', (e) => {
-  if (!e.target.matches('.filter-btn')) return;
-  currentStatusFilter = e.target.dataset.status;
-  document.querySelectorAll('#status-filters .filter-btn').forEach(b => b.classList.remove('active'));
-  e.target.classList.add('active');
+document.getElementById('status-filters').addEventListener('click', (event) => {
+  if (!event.target.matches('.filter-btn')) return;
+  currentStatusFilter = event.target.dataset.status;
+  document.querySelectorAll('#status-filters .filter-btn').forEach(button => button.classList.remove('active'));
+  event.target.classList.add('active');
   refresh();
 });
 
@@ -375,152 +555,157 @@ async function setResolved(id, resolved) {
 
 async function updateStats() {
   try {
-    const res = await fetch('/api/reports');
-    const all = await res.json();
-    document.getElementById('stat-no_response').textContent = all.filter(r => r.status === 'no_response').length;
-    document.getElementById('stat-both').textContent = all.filter(r => r.status === 'both').length;
-    document.getElementById('stat-medical').textContent = all.filter(r => r.status === 'medical').length;
-    document.getElementById('stat-resource').textContent = all.filter(r => r.status === 'resource').length;
-  } catch (err) {}
-}
-
-const deviceStatusLabels = {
-  scanning: 'Scanning',
-  locked: 'Locked on target',
-  idle: 'Idle'
-};
-
-function formatSecondsAgo(seconds) {
-  if (seconds == null) return '—';
-  if (seconds < 60) return `${seconds}s ago`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  return `${Math.floor(seconds / 3600)}h ago`;
+    const response = await fetch('/api/reports');
+    const reports = await response.json();
+    document.getElementById('stat-no_response').textContent = reports.filter(report => report.status === 'no_response').length;
+    document.getElementById('stat-both').textContent = reports.filter(report => report.status === 'both').length;
+    document.getElementById('stat-medical').textContent = reports.filter(report => report.status === 'medical').length;
+    document.getElementById('stat-resource').textContent = reports.filter(report => report.status === 'resource').length;
+  } catch (err) {
+    console.error('Failed to update stats', err);
+  }
 }
 
 async function updateDevices() {
   try {
-    const res = await fetch('/api/devices');
-    const devices = await res.json();
-    const panel = document.getElementById('device-panel');
+    const response = await fetch('/api/devices');
+    const devices = await response.json();
+    currentDevices = devices;
 
-    deviceMarkers.forEach(m => map.removeLayer(m));
+    const panel = document.getElementById('device-panel');
+    deviceMarkers.forEach(marker => map.removeLayer(marker));
     deviceMarkers = [];
+    deviceMarkerById = new Map();
 
     if (devices.length === 0) {
-      panel.innerHTML = '<div class="device-card"><div class="device-detail">No devices reporting yet…</div></div>';
+      panel.innerHTML = '<div class="device-card"><div class="device-detail">No devices reporting yet...</div></div>';
       return;
     }
 
-    devices.forEach(d => {
-      if (d.lat == null || d.lon == null) return;
-      const isOnline = !!d.online;
-      // Small visual offset so the device marker doesn't sit exactly on
-      // top of a report pin at the same coordinates.
-      const offsetLat = d.lat + 0.0012;
-      const offsetLon = d.lon + 0.0012;
+    devices.forEach(device => {
+      if (!isValidCoordinate(device.lat, device.lon)) return;
+      const isOnline = !!device.online;
+      const offsetLat = toNumber(device.lat) + 0.0012;
+      const offsetLon = toNumber(device.lon) + 0.0012;
+
       const marker = L.marker([offsetLat, offsetLon], {
         icon: L.divIcon({
           className: '',
-          html: `<div style="
-            background: ${isOnline ? '#3b82f6' : '#6b7280'};
-            color: white;
-            font-size: 10px;
-            font-weight: 700;
-            padding: 3px 6px;
-            border-radius: 4px;
-            border: 2px solid ${isOnline ? '#ffffff' : '#cbd5e1'};
-            white-space: nowrap;
-            opacity: ${isOnline ? 1 : 0.5};
-          ">${d.device_id}</div>`,
+          html: createDeviceIcon(device, String(selectionState.selectedRobotId) === String(device.device_id)),
           iconSize: null,
           iconAnchor: [20, 20]
         })
       }).addTo(map);
 
-      const statusText = deviceStatusLabels[d.status] || d.status || '—';
+      const statusText = deviceStatusLabels[device.status] || device.status || 'Unknown';
       marker.bindPopup(`
         <div class="map-popup">
-          <div class="popup-status" style="color:#3b82f6">${d.device_id}</div>
+          <div class="popup-status" style="color:#3b82f6">${device.device_id}</div>
           <div>Status: ${statusText}</div>
-          <div>Battery: ${d.battery != null ? d.battery + '%' : '—'}</div>
-          <div>${isOnline ? '🟢 Online' : '🔴 Offline'}</div>
-          <div>Updated: ${formatSecondsAgo(d.seconds_ago)}</div>
+          <div>Battery: ${device.battery != null ? `${device.battery}%` : 'Unknown'}</div>
+          <div>${isOnline ? 'Online' : 'Offline'}</div>
+          <div>Updated: ${formatSecondsAgo(device.seconds_ago)}</div>
         </div>
       `);
+      marker.on('click', () => selectDevice(device.device_id));
+
       deviceMarkers.push(marker);
+      deviceMarkerById.set(String(device.device_id), marker);
     });
 
-    panel.innerHTML = devices.map(d => {
-      const isOnline = !!d.online;
-      const bat = d.battery != null ? d.battery : '—';
-      const batColor = d.battery > 50 ? '#22c55e' : d.battery > 20 ? '#f59e0b' : '#ef4444';
-      const statusText = deviceStatusLabels[d.status] || d.status || '—';
+    panel.innerHTML = devices.map(device => {
+      const isOnline = !!device.online;
+      const battery = device.battery != null ? device.battery : 'Unknown';
+      const batteryValue = device.battery != null ? device.battery : 0;
+      const batteryColor = batteryValue > 50 ? '#22c55e' : batteryValue > 20 ? '#f59e0b' : '#ef4444';
+      const statusText = deviceStatusLabels[device.status] || device.status || 'Unknown';
       return `
-        <div class="device-card ${isOnline ? '' : 'offline'}">
+        <div class="device-card ${isOnline ? '' : 'offline'}" data-device-id="${device.device_id}">
           <div class="device-header">
-            <span class="device-name">${d.device_id}</span>
+            <span class="device-name">${device.device_id}</span>
             <span class="device-online ${isOnline ? 'on' : 'off'}">${isOnline ? 'Online' : 'Offline'}</span>
           </div>
           <div class="device-detail">Status: ${statusText}</div>
-          <div class="device-detail">Battery: ${bat}%</div>
-          <div class="device-detail" style="opacity:0.7">Updated ${formatSecondsAgo(d.seconds_ago)}</div>
+          <div class="device-detail">Battery: ${battery}${device.battery != null ? '%' : ''}</div>
+          <div class="device-detail" style="opacity:0.7">Updated ${formatSecondsAgo(device.seconds_ago)}</div>
           <div class="battery-bar">
-            <div class="battery-fill" style="width:${d.battery || 0}%; background:${batColor}"></div>
+            <div class="battery-fill" style="width:${batteryValue}%; background:${batteryColor}"></div>
           </div>
         </div>
       `;
     }).join('');
-  } catch (err) {}
+
+    panel.querySelectorAll('.device-card[data-device-id]').forEach(card => {
+      card.addEventListener('click', () => selectDevice(card.dataset.deviceId));
+    });
+
+    updateSelectionStyles();
+  } catch (err) {
+    console.error('Failed to update devices', err);
+  }
+}
+
+function renderReports(reports) {
+  currentReports = reports;
+  updateMap(reports);
+
+  const body = document.getElementById('report-body');
+  if (reports.length === 0) {
+    body.innerHTML = '<tr><td colspan="6" class="empty">No matching reports...</td></tr>';
+    return;
+  }
+
+  body.innerHTML = reports.map(report => {
+    const label = statusLabels[report.status] || report.status;
+    const lat = toNumber(report.lat);
+    const lon = toNumber(report.lon);
+    const location = lat !== null && lon !== null ? `${lat.toFixed(4)}, ${lon.toFixed(4)}` : 'Location unavailable';
+    const isResolved = !!report.resolved;
+    const actionButton = isResolved
+      ? `<button class="resolve-btn undo" onclick="setResolved(${report.id}, false)">Undo</button>`
+      : `<button class="resolve-btn" onclick="setResolved(${report.id}, true)">Mark resolved</button>`;
+
+    return `
+      <tr class="${isResolved ? 'resolved' : ''}" data-report-id="${report.id}">
+        <td><span class="badge ${report.status}">${label}</span></td>
+        <td>${report.device_id}</td>
+        <td>${report.timestamp}</td>
+        <td>${location}</td>
+        <td>${buildReportThumbnail(report.photo)}</td>
+        <td>${actionButton}</td>
+      </tr>
+    `;
+  }).join('');
+
+  body.querySelectorAll('tr[data-report-id]').forEach(row => {
+    row.addEventListener('click', (event) => {
+      if (event.target.closest('button')) return;
+      selectReport(row.dataset.reportId);
+    });
+  });
+
+  updateSelectionStyles();
 }
 
 async function refresh() {
   try {
-    updateStats();
-    updateDevices();
+    await Promise.all([updateStats(), updateDevices()]);
 
     const params = new URLSearchParams();
     if (currentResolvedFilter === 'unresolved') params.set('resolved', 'false');
     if (currentResolvedFilter === 'resolved') params.set('resolved', 'true');
     if (currentStatusFilter !== 'all') params.set('status', currentStatusFilter);
 
-    const res = await fetch(`/api/reports?${params.toString()}`);
-    const reports = await res.json();
+    const response = await fetch(`/api/reports?${params.toString()}`);
+    const reports = await response.json();
 
-    // Sort by urgency (highest priority first), most recent within same priority
     reports.sort((a, b) => {
       const priorityDiff = (statusPriority[b.status] || 0) - (statusPriority[a.status] || 0);
       if (priorityDiff !== 0) return priorityDiff;
       return new Date(b.timestamp) - new Date(a.timestamp);
     });
 
-    const body = document.getElementById('report-body');
-
-    updateMap(reports);
-
-    if (reports.length === 0) {
-      body.innerHTML = '<tr><td colspan="5" class="empty">No matching reports…</td></tr>';
-      return;
-    }
-
-    body.innerHTML = reports.map(r => {
-      const label = statusLabels[r.status] || r.status;
-      const loc = (r.lat != null && r.lon != null)
-        ? `${r.lat.toFixed(4)}, ${r.lon.toFixed(4)}`
-        : '—';
-      const isResolved = !!r.resolved;
-      const actionBtn = isResolved
-        ? `<button class="resolve-btn undo" onclick="setResolved(${r.id}, false)">Undo</button>`
-        : `<button class="resolve-btn" onclick="setResolved(${r.id}, true)">Mark resolved</button>`;
-      return `
-        <tr class="${isResolved ? 'resolved' : ''}">
-          <td><span class="badge ${r.status}">${label}</span></td>
-          <td>${r.device_id}</td>
-          <td>${r.timestamp}</td>
-          <td>${loc}</td>
-          <td>${actionBtn}</td>
-        </tr>
-      `;
-    }).join('');
+    renderReports(reports);
   } catch (err) {
     console.error('Failed to fetch reports', err);
   }

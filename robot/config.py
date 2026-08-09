@@ -37,6 +37,7 @@ MOCK_CAMERA = _bool_from_env("MOCK_CAMERA", False)
 MOCK_PERCEPTION = _bool_from_env("MOCK_PERCEPTION", False)
 MOCK_MOTORS = _bool_from_env("MOCK_MOTORS", True)
 MOCK_TRIAGE = _bool_from_env("MOCK_TRIAGE", False)
+ROBOT_SHOW_PREVIEW = _bool_from_env("ROBOT_SHOW_PREVIEW", False)
 
 SYNC_RETRY_INTERVAL = _int_from_env("SYNC_RETRY_INTERVAL", 10)
 HEARTBEAT_INTERVAL_SECONDS = _int_from_env("HEARTBEAT_INTERVAL_SECONDS", 300)
