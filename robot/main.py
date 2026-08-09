@@ -61,6 +61,18 @@ def run(
             state_machine.motors.stop_robot()
         except Exception as exc:
             logger.exception("Failed to stop motors during shutdown: %s", exc)
+        try:
+            state_machine.camera.release()
+        except Exception as exc:
+            logger.exception("Failed to release camera during shutdown: %s", exc)
+        try:
+            state_machine.perception.close()
+        except Exception as exc:
+            logger.exception("Failed to close perception during shutdown: %s", exc)
+        try:
+            state_machine.triage.close()
+        except Exception as exc:
+            logger.exception("Failed to close triage during shutdown: %s", exc)
         logger.info("Robot shutdown complete.")
 
 
