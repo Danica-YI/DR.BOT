@@ -7,6 +7,7 @@ import os
 import queue
 import sys
 import time
+import wave
 from dataclasses import dataclass
 
 
@@ -87,7 +88,8 @@ class OfflineVoice:
     def recognition_available(self) -> bool:
         return self._model is not None
 
-    def say(self, message: str) -> bool:
+    def say(self, message: str, language: str | None = None) -> bool:
+        del language
         print(f"VOICE: {message}")
         if self._tts_module is None:
             return False
@@ -302,3 +304,35 @@ def _answer_from_text(text: str, language: str = "en") -> str | None:
     if "help" in words:
         return "HELP"
     return None
+
+
+def record_wav(duration: float = 5.0, audio_device: int | None = None, sample_rate: int = 16000) -> bytes:
+    """Record a mono WAV clip and return it as bytes.
+
+    This keeps cloud triage compatible with the older helper-based audio path.
+    If recording is unavailable, callers can treat the raised exception as a
+    signal to fall back to gesture or offline handling.
+    """
+    try:
+        import io
+        import sounddevice as sd
+
+        frames = max(1, int(duration * sample_rate))
+        audio = sd.rec(
+            frames,
+            samplerate=sample_rate,
+            channels=1,
+            dtype="int16",
+            device=audio_device,
+        )
+        sd.wait()
+
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(audio.tobytes())
+        return buffer.getvalue()
+    except Exception as exc:
+        raise RuntimeError(f"audio recording unavailable: {exc}") from exc

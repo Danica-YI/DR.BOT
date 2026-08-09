@@ -97,6 +97,17 @@ class DeviceTriageRunner:
             "other_people_nearby": "附近还有其他人吗？",
             "needs_supply": "你需要物资吗？",
         }
+        self.voice_mode_instruction = "Please answer YES or NO."
+        self.gesture_mode_instruction = (
+            "For YES, raise both arms above your head and form a large circle. "
+            "For NO, cross both arms in front of your chest."
+        )
+        self.chinese_voice_mode_instruction = "璇峰彧闇€瑕佸洖绛旀槸鎴栦笉鏄?"
+        self.chinese_gesture_mode_instruction = (
+            "濡傛灉鏄紝璇峰皢涓ゅ彧鎵嬭噦涓惧埌澶撮《涓婃柟褰㈡垚涓€涓ぇ鍦嗐€? "
+            "濡傛灉涓嶆槸锛岃鍦ㄨ兏鍓嶄氦鍙夊弻鑷傘€?"
+        )
+        self.mode_instruction_played = False
         self.message = "Searching for person..."
 
     def run(self):
@@ -483,6 +494,8 @@ class DeviceTriageRunner:
         if self.question_index >= len(self.questions):
             self.state = "TRIAGE"
             return
+        if self.question_index == 0 and not self.mode_instruction_played:
+            self._play_mode_instruction()
         self.current_question = self.questions[self.question_index]
         key, english_question = self.current_question
         if self.interaction_language == "zh":
@@ -491,6 +504,25 @@ class DeviceTriageRunner:
             self.current_question = (key, f"{english_question} {self.chinese_questions[key]}")
         self.state = "ASKING_VOICE"
         self.message = f"Next question: {self.current_question[1]}"
+
+    def _play_mode_instruction(self):
+        if self.interaction_mode == "gesture":
+            if self.interaction_language == "zh":
+                instruction = self.chinese_gesture_mode_instruction
+            elif self.interaction_language == "bilingual":
+                instruction = f"{self.gesture_mode_instruction} {self.chinese_gesture_mode_instruction}"
+            else:
+                instruction = self.gesture_mode_instruction
+        else:
+            if self.interaction_language == "zh":
+                instruction = self.chinese_voice_mode_instruction
+            elif self.interaction_language == "bilingual":
+                instruction = f"{self.voice_mode_instruction} {self.chinese_voice_mode_instruction}"
+            else:
+                instruction = self.voice_mode_instruction
+        self.voice.say(instruction)
+        self.message = instruction
+        self.mode_instruction_played = True
 
     def _handle_triage_state(self):
         can_walk = self.answers.get("can_walk")
@@ -603,6 +635,7 @@ class DeviceTriageRunner:
         self.answers = {}
         self.answer_details = []
         self.resource_requested = False
+        self.mode_instruction_played = False
         self.gesture_stabilizer.reset()
         self.voice_future = None
         self.search_frame_count = 0

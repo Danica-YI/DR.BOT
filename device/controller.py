@@ -1,9 +1,7 @@
-from ultralytics import YOLO
-import cv2
-
-
 class PersonDetector:
     def __init__(self, model_name: str = "yolov8n.pt", min_confidence: float = 0.4):
+        from ultralytics import YOLO
+
         self.model = YOLO(model_name)
         self.min_confidence = min_confidence
 

@@ -1,10 +1,20 @@
 from flask import Flask, request, jsonify, render_template
+import json
 import sqlite3
 import os
 
 app = Flask(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'reports.db')
+
+
+def ensure_column(conn, table_name, column_name, definition):
+    columns = {
+        row[1]
+        for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    if column_name not in columns:
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
 
 
 def init_db():
@@ -33,6 +43,19 @@ def init_db():
             last_seen TEXT DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS triage_assessments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL,
+            assessment_json TEXT NOT NULL,
+            timestamp TEXT,
+            lat REAL,
+            lon REAL,
+            resolved INTEGER NOT NULL DEFAULT 0,
+            received_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    ensure_column(conn, 'reports', 'photo', 'TEXT')
     conn.commit()
     conn.close()
 
@@ -41,6 +64,17 @@ def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def normalize_photo_value(photo):
+    if photo is None or not isinstance(photo, str):
+        return None
+    photo = photo.strip()
+    if not photo:
+        return None
+    if photo.startswith('data:image/'):
+        return photo
+    return None
 
 
 @app.route('/')
@@ -78,10 +112,10 @@ def receive_report():
     location = data.get('location') or {}
     lat = location.get('lat')
     lon = location.get('lon')
-    photo = data.get('photo')
+    photo = normalize_photo_value(data.get('photo'))
 
     conn = get_db()
-    conn.execute(
+    cursor = conn.execute(
         'INSERT INTO reports (device_id, status, timestamp, lat, lon, photo, resolved) VALUES (?, ?, ?, ?, ?, ?, ?)',
         (data['device_id'], data['status'], data['timestamp'], lat, lon, photo, 0)
     )
@@ -96,10 +130,11 @@ def receive_report():
             last_seen = CURRENT_TIMESTAMP
     ''', (data['device_id'], lat, lon))
 
+    report_id = cursor.lastrowid
     conn.commit()
     conn.close()
 
-    return jsonify({"success": True}), 200
+    return jsonify({"success": True, "report_id": report_id}), 200
 
 
 @app.route('/api/reports/batch', methods=['POST'])
@@ -123,9 +158,10 @@ def receive_batch():
         if r['status'] not in ('no_response', 'both', 'medical', 'resource'):
             continue
         location = r.get('location') or {}
+        photo = normalize_photo_value(r.get('photo'))
         conn.execute(
             'INSERT INTO reports (device_id, status, timestamp, lat, lon, photo, resolved) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            (r['device_id'], r['status'], r['timestamp'], location.get('lat'), location.get('lon'), r.get('photo'), 0)
+            (r['device_id'], r['status'], r['timestamp'], location.get('lat'), location.get('lon'), photo, 0)
         )
         inserted += 1
     conn.commit()
@@ -167,15 +203,17 @@ def receive_triage_assessment():
         report_status = 'no_response'
 
     if report_status in ('medical', 'resource', 'no_response'):
+        photo = normalize_photo_value(data.get('photo') or assessment.get('photo'))
         conn = get_db()
         conn.execute(
-            'INSERT INTO reports (device_id, status, timestamp, lat, lon, resolved) VALUES (?, ?, ?, ?, ?, ?)',
+            'INSERT INTO reports (device_id, status, timestamp, lat, lon, photo, resolved) VALUES (?, ?, ?, ?, ?, ?, ?)',
             (
                 data['device_id'],
                 report_status,
                 assessment.get('timestamp') or data.get('timestamp'),
                 location.get('lat'),
                 location.get('lon'),
+                photo,
                 0,
             ),
         )
@@ -213,11 +251,12 @@ def receive_triage_batch():
         ):
             report_status = 'no_response'
         if report_status in ('medical', 'resource', 'no_response'):
+            photo = normalize_photo_value(assessment.get('photo'))
             conn.execute(
-                'INSERT INTO reports (device_id, status, timestamp, lat, lon, resolved) VALUES (?, ?, ?, ?, ?, ?)',
+                'INSERT INTO reports (device_id, status, timestamp, lat, lon, photo, resolved) VALUES (?, ?, ?, ?, ?, ?, ?)',
                 (
                     data['device_id'], report_status, assessment.get('timestamp'),
-                    data.get('location', {}).get('lat'), data.get('location', {}).get('lon'), 0,
+                    data.get('location', {}).get('lat'), data.get('location', {}).get('lon'), photo, 0,
                 ),
             )
         inserted += 1

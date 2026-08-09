@@ -3,3 +3,9 @@ __pycache__/
 reports.db
 .DS_Store
 venv/
+.cache/
+Ultralytics/
+tmp_backend.err
+tmp_backend.out
+tmp_dashboard.err
+tmp_dashboard.out

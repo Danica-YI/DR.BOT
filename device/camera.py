@@ -11,22 +11,46 @@ def status_color(status):
     return (0, 200, 0)
 
 
-def open_camera(index: int = 0) -> cv2.VideoCapture:
+def _candidate_backends():
     if sys.platform == "win32":
-        cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-    else:
-        cap = cv2.VideoCapture(index)
-    if not cap.isOpened():
-        raise RuntimeError(f"Unable to open camera {index}")
+        return [
+            ("CAP_DSHOW", cv2.CAP_DSHOW),
+            ("CAP_MSMF", cv2.CAP_MSMF),
+            ("CAP_ANY", cv2.CAP_ANY),
+        ]
+    return [("CAP_ANY", cv2.CAP_ANY)]
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-    time.sleep(1)
-    for _ in range(10):
-        cap.read()
+def open_camera(index: int = 0) -> cv2.VideoCapture:
+    errors = []
+    for backend_name, backend in _candidate_backends():
+        cap = cv2.VideoCapture(index, backend)
+        if not cap.isOpened():
+            errors.append(f"{backend_name}: open failed")
+            cap.release()
+            continue
 
-    return cap
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+        time.sleep(1)
+        readable = False
+        for _ in range(10):
+            ok, _frame = cap.read()
+            if ok:
+                readable = True
+                break
+        if readable:
+            return cap
+
+        errors.append(f"{backend_name}: opened but no readable frames")
+        cap.release()
+
+    attempted = ", ".join(name for name, _ in _candidate_backends())
+    details = "; ".join(errors) if errors else "no backend attempts recorded"
+    raise RuntimeError(
+        f"Unable to open camera {index}. Attempted backends: {attempted}. Details: {details}"
+    )
 
 
 def draw_overlay(frame, state: str, message: str, bbox=None, status=None) -> None:

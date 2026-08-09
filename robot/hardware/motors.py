@@ -3,14 +3,20 @@
 import logging
 from typing import Callable
 
+from ..config import MOCK_MOTORS
+
 
 class MotorController:
     """Safe motor control interface for robot movement."""
 
-    def __init__(self, executor: Callable[[str], None] | None = None) -> None:
+    def __init__(self, executor: Callable[[str], None] | None = None, use_mock: bool | None = None) -> None:
         self.logger = logging.getLogger(__name__)
+        self.use_mock = MOCK_MOTORS if use_mock is None else use_mock
         self.executor = executor or self._mock_execute
-        self.logger.info("Motor controller initialized in mock mode.")
+        if self.use_mock:
+            self.logger.info("Motor controller initialized in mock mode.")
+        else:
+            self.logger.warning("Motor controller is set to real mode, but no hardware executor is configured.")
 
     def move_forward(self) -> None:
         self._perform_action("Moving forward")
@@ -38,8 +44,10 @@ class MotorController:
                 self._perform_action("STOP", safe=True)
 
     def _mock_execute(self, action: str) -> None:
-        self.logger.debug("Mock motor execute: %s", action)
-        # No actual GPIO or motor hardware is used in mock mode.
+        if self.use_mock:
+            self.logger.debug("Mock motor execute: %s", action)
+            return
+        raise RuntimeError("No real motor executor configured for action: %s" % action)
 
 
 if __name__ == "__main__":

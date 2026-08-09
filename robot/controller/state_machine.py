@@ -2,13 +2,27 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import time
 from enum import Enum, auto
 from typing import Any
 
+from device.api_client import flush_triage_queue, post_target_frame, post_triage_assessment
+
 from ..camera import Camera
-from ..config import BACKEND_URL, HEARTBEAT_INTERVAL_SECONDS, ROBOT_ID
+from ..config import (
+    BACKEND_URL,
+    HEARTBEAT_INTERVAL_SECONDS,
+    PERSON_STABLE_FRAMES,
+    ROBOT_ID,
+    TARGET_CAPTURE_APPROACH_RATIO,
+    TARGET_CAPTURE_DISTANCE_METERS,
+    TARGET_CAPTURE_ENABLED,
+    TARGET_CAPTURE_JPEG_QUALITY,
+    TARGET_LOCK_FRAMES,
+    YOLO_INTERVAL,
+)
 from ..hardware.motors import MotorController
 from ..location_provider import LocationProvider
 from ..perception import PerceptionClient
@@ -27,6 +41,69 @@ class RobotState(Enum):
     OFFLINE = auto()
     ERROR = auto()
     RETURNING = auto()
+
+
+def plan_target_motion(
+    detection: dict[str, Any],
+    center_tolerance_ratio: float = 0.12,
+    desired_height_ratio: float = 0.5,
+) -> dict[str, Any]:
+    """Choose the next motion step required to centre and approach a person."""
+    x1, y1, x2, y2 = detection["bbox"]
+    frame_width = max(float(detection["frame_width"]), 1.0)
+    frame_height = max(float(detection["frame_height"]), 1.0)
+    person_center_x = (x1 + x2) / 2.0
+    frame_center_x = frame_width / 2.0
+    center_offset_ratio = (person_center_x - frame_center_x) / frame_width
+    bbox_height_ratio = (y2 - y1) / frame_height
+    bbox_width_ratio = (x2 - x1) / frame_width
+
+    centered = abs(center_offset_ratio) <= center_tolerance_ratio
+    close_enough = bbox_height_ratio >= desired_height_ratio or bbox_width_ratio >= 0.35
+
+    if not centered:
+        return {
+            "action": "turn_left" if center_offset_ratio < 0 else "turn_right",
+            "centered": False,
+            "close_enough": close_enough,
+            "offset_ratio": center_offset_ratio,
+            "bbox_height_ratio": bbox_height_ratio,
+        }
+    if not close_enough:
+        return {
+            "action": "move_forward",
+            "centered": True,
+            "close_enough": False,
+            "offset_ratio": center_offset_ratio,
+            "bbox_height_ratio": bbox_height_ratio,
+        }
+    return {
+        "action": "hold",
+        "centered": True,
+        "close_enough": True,
+        "offset_ratio": center_offset_ratio,
+        "bbox_height_ratio": bbox_height_ratio,
+    }
+
+
+def build_target_frame_metadata(
+    detection: dict[str, Any],
+    estimated_distance_m: float = TARGET_CAPTURE_DISTANCE_METERS,
+) -> dict[str, Any]:
+    """Build backend metadata for a target frame snapshot.
+
+    The current implementation uses bounding-box scale as a proxy for distance.
+    A real deployment should replace this with calibrated depth or range sensing.
+    """
+    return {
+        "bbox": list(detection["bbox"]),
+        "confidence": detection.get("confidence"),
+        "frame_width": detection.get("frame_width"),
+        "frame_height": detection.get("frame_height"),
+        "distance_mode": "bbox_proxy",
+        "estimated_distance_m": estimated_distance_m,
+        "target_centered": True,
+    }
 
 
 class StateMachine:
@@ -78,6 +155,13 @@ class StateMachine:
         self.periodic_test_report_interval = periodic_test_report_interval
         self.last_periodic_test_report_time = time.time()
         self.auto_report_enabled = not self._is_mock_report_mode()
+        self.search_frame_count = 0
+        self.center_frames = 0
+        self.target_lock_frames = 0
+        self.target_frame_uploaded = False
+        self.pending_report_photo: str | None = None
+        self.active_detection: dict[str, Any] | None = None
+        self.assessment: dict[str, Any] | None = None
         self.logger.info("Initialized state machine in %s", self.current_state.name)
         if not self.auto_report_enabled:
             self.logger.info(
@@ -167,14 +251,17 @@ class StateMachine:
         self.logger.info("Searching for persons...")
         try:
             frame = self.camera.get_frame()
-            person_detected = self.perception.detect_person(frame)
+            self.search_frame_count += 1
+            if self.search_frame_count == 1 or self.search_frame_count % max(1, YOLO_INTERVAL) == 0:
+                self.active_detection = self.perception.locate_person(frame)
         except Exception as exc:
             self.logger.warning("Search failed: %s", exc)
             self._safe_stop()
             return
 
-        if not person_detected:
+        if not self.active_detection:
             self.logger.debug("No person detected; remaining in SEARCHING.")
+            self.center_frames = 0
             return
 
         if not self.auto_report_enabled:
@@ -183,16 +270,57 @@ class StateMachine:
             )
             return
 
+        self.center_frames += 1
+        if self.center_frames < PERSON_STABLE_FRAMES:
+            self.logger.debug("Person detection not yet stable (%s/%s).", self.center_frames, PERSON_STABLE_FRAMES)
+            return
+
         if self.transition(RobotState.PERSON_DETECTED):
-            self._safe_stop()
-            if self.transition(RobotState.STOPPED):
-                self.transition(RobotState.INTERACTING)
-                self._perform_interaction()
+            self.logger.info("Stable person detection acquired; beginning approach and alignment.")
 
     def _handle_person_detected(self) -> None:
-        self.logger.info("Person detected; stopping robot.")
+        self.logger.info("Person detected; moving towards target and centring upper body.")
+        try:
+            frame = self.camera.get_frame()
+            detection = self.perception.locate_person(frame)
+        except Exception as exc:
+            self.logger.warning("Target tracking failed: %s", exc)
+            self._safe_stop()
+            self.transition(RobotState.SEARCHING)
+            return
+
+        if not detection:
+            self.logger.info("Lost sight of target; resuming search.")
+            self._safe_stop()
+            self.target_lock_frames = 0
+            self.target_frame_uploaded = False
+            self.transition(RobotState.SEARCHING)
+            return
+
+        self.active_detection = detection
+        motion = plan_target_motion(detection, desired_height_ratio=TARGET_CAPTURE_APPROACH_RATIO)
+        action = motion["action"]
+        if action == "turn_left":
+            self.camera.adjust_view("left")
+            self.motors.turn_left()
+            self.target_lock_frames = 0
+            return
+        if action == "turn_right":
+            self.camera.adjust_view("right")
+            self.motors.turn_right()
+            self.target_lock_frames = 0
+            return
+        if action == "move_forward":
+            self.motors.move_forward()
+            self.target_lock_frames = 0
+            return
+
+        self.target_lock_frames += 1
         self._safe_stop()
-        self.transition(RobotState.STOPPED)
+        self.logger.info("Target aligned and close (%s/%s).", self.target_lock_frames, TARGET_LOCK_FRAMES)
+        if self.target_lock_frames >= TARGET_LOCK_FRAMES:
+            self._capture_target_frame_if_ready(frame, detection)
+            self.transition(RobotState.STOPPED)
 
     def _prepare_interaction(self) -> None:
         self.logger.info("Preparing interaction after stop.")
@@ -207,40 +335,82 @@ class StateMachine:
             return
 
         try:
-            triage_result = self.triage.run_triage()
+            self.assessment = self.triage.run_triage(frame_provider=self.camera.get_frame)
         except Exception as exc:
             self.logger.warning("Triage failed: %s", exc)
             self._safe_stop()
             return
 
         self.transition(RobotState.REPORTING)
-        incident = self._create_incident(triage_result)
-        self.offline_queue.add_incident(incident.to_dict())
         self._reset_heartbeat_timer()
         self._report()
 
-    def _create_incident(self, triage_result: dict[str, Any]) -> Any:
-        self.logger.debug("Creating internal incident from triage result.")
-        return create_incident_report(
-            incident_type="person_detected",
-            latitude=(self._get_current_location() or {}).get("latitude", 0.0),
-            longitude=(self._get_current_location() or {}).get("longitude", 0.0),
-            person_detected=True,
-            status=triage_result.get("status", "medical"),
-            conscious=triage_result.get("conscious", True),
-            mobility=triage_result.get("mobility", "limited"),
-            needs=triage_result.get("needs", [triage_result.get("status", "medical")]),
-        )
-
     def _report(self) -> None:
-        self.logger.info("Attempting backend synchronization for pending incidents.")
+        self.logger.info("Attempting backend synchronization for triage assessment.")
+        location = self._get_current_location() or {}
         try:
-            results = self.sync_manager.sync_pending_incidents()
-            self.logger.info("Sync results: %s", results)
+            flush_result = flush_triage_queue(
+                self.api_client.base_url,
+                ROBOT_ID,
+                location.get("latitude", 0.0),
+                location.get("longitude", 0.0),
+            )
+            self.logger.info("Flushed pending triage queue: %s", flush_result)
+            if self.assessment is None:
+                self.logger.warning("No assessment available to report.")
+            else:
+                if self.pending_report_photo and "photo" not in self.assessment:
+                    self.assessment["photo"] = self.pending_report_photo
+                success, response = post_triage_assessment(
+                    self.api_client.base_url,
+                    ROBOT_ID,
+                    self.assessment,
+                    location.get("latitude", 0.0),
+                    location.get("longitude", 0.0),
+                )
+                if success:
+                    self.logger.info("Triage assessment reported successfully: %s", response)
+                else:
+                    self.logger.warning("Triage assessment queued offline: %s", response)
         except Exception as exc:
             self.logger.warning("Sync attempt failed: %s", exc)
 
+        self.assessment = None
+        self.active_detection = None
+        self.center_frames = 0
+        self.target_lock_frames = 0
+        self.target_frame_uploaded = False
+        self.pending_report_photo = None
         self.transition(RobotState.SEARCHING)
+
+    def _capture_target_frame_if_ready(self, frame: Any, detection: dict[str, Any]) -> None:
+        if not TARGET_CAPTURE_ENABLED or self.target_frame_uploaded:
+            return
+        location = self._get_current_location() or {}
+        try:
+            image_bytes = self.camera.encode_frame(frame, ".jpg", TARGET_CAPTURE_JPEG_QUALITY)
+            metadata = build_target_frame_metadata(detection)
+            self.pending_report_photo = (
+                f"data:image/jpeg;base64,{base64.b64encode(image_bytes).decode('ascii')}"
+            )
+            success, response = post_target_frame(
+                self.api_client.base_url,
+                ROBOT_ID,
+                image_bytes,
+                location.get("latitude", 0.0),
+                location.get("longitude", 0.0),
+                metadata=metadata,
+            )
+            if success:
+                self.logger.info("Target frame uploaded successfully: %s", response)
+            else:
+                self.logger.info(
+                    "Deferring target frame attachment to final report payload: %s",
+                    response,
+                )
+            self.target_frame_uploaded = True
+        except Exception as exc:
+            self.logger.warning("Target frame capture/upload failed: %s", exc)
 
     def _safe_stop(self) -> None:
         try:
