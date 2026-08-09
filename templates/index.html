@@ -101,7 +101,7 @@
   }
   #map {
     width: 100%;
-    height: 350px;
+    height: 420px;
     border-radius: 8px;
     margin-bottom: 20px;
     border: 1px solid #475569;
@@ -112,6 +112,8 @@
     margin-top: 6px;
     width: 100%;
     max-width: 220px;
+    aspect-ratio: 11 / 7;
+    object-fit: cover;
     border-radius: 6px;
     display: block;
   }
@@ -394,7 +396,7 @@ function buildPopupPhoto(photo) {
   if (!photo) {
     return `<img src="${popupPlaceholderImage}" class="popup-photo" alt="Detection photo unavailable" />`;
   }
-  return `<img src="${photo}" class="popup-photo" alt="Detection photo" onerror="this.onerror=null;this.src='${popupPlaceholderImage}'" />`;
+  return `<img src="${photo}" class="popup-photo" alt="Detection photo" onload="window.centerOpenPopup && window.centerOpenPopup()" onerror="this.onerror=null;this.src='${popupPlaceholderImage}';window.centerOpenPopup && window.centerOpenPopup()" />`;
 }
 
 function buildReportThumbnail(photo) {
@@ -402,11 +404,41 @@ function buildReportThumbnail(photo) {
   return `<img src="${src}" class="report-thumb" alt="Report photo" onerror="this.onerror=null;this.src='${popupPlaceholderImage}'" />`;
 }
 
-function focusMarker(marker) {
+function centerPopupForMarker(marker, options = {}) {
   if (!marker) return;
-  const latlng = marker.getLatLng();
-  map.flyTo(latlng, Math.max(map.getZoom(), 15), { duration: 0.4 });
-  if (marker.getPopup()) marker.openPopup();
+  const zoom = Math.max(map.getZoom(), options.minZoom || 15);
+  const popup = marker.getPopup();
+  if (!popup) return;
+
+  popup.openOn(map);
+  requestAnimationFrame(() => {
+    const popupElement = popup.getElement();
+    const popupHeight = popupElement ? popupElement.offsetHeight : 220;
+    const verticalOffset = Math.min(Math.max(Math.round(popupHeight * 0.48), 120), 210);
+    const targetCenter = map.unproject(
+      map.project(marker.getLatLng(), zoom).subtract([0, verticalOffset]),
+      zoom
+    );
+    map.setView(targetCenter, zoom, { animate: true });
+  });
+}
+
+window.centerOpenPopup = function centerOpenPopup() {
+  const popup = map._popup;
+  if (!popup) return;
+  const marker = popup._source;
+  if (!marker) return;
+  centerPopupForMarker(marker);
+};
+
+function focusMarker(marker, options = {}) {
+  if (!marker) return;
+  if (options.centerPopup === false) {
+    map.setView(marker.getLatLng(), Math.max(map.getZoom(), options.minZoom || 15), { animate: true });
+    if (marker.getPopup()) marker.openPopup();
+    return;
+  }
+  centerPopupForMarker(marker, options);
 }
 
 function updateSelectionStyles() {
@@ -454,13 +486,10 @@ function selectReport(reportId, options = {}) {
   if (report) selectionState.selectedRobotId = String(report.device_id);
   updateSelectionStyles();
 
-  if (options.scroll !== false) {
-    const row = document.querySelector(`#report-body tr[data-report-id="${reportId}"]`);
-    if (row) row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }
-
   const marker = reportMarkerById.get(String(reportId));
-  if (marker) focusMarker(marker);
+  if (marker && options.focusMap !== false) {
+    focusMarker(marker, { centerPopup: options.centerPopup !== false });
+  }
 }
 
 function selectDevice(deviceId, options = {}) {
@@ -468,13 +497,30 @@ function selectDevice(deviceId, options = {}) {
   selectionState.selectedRobotId = String(deviceId);
   updateSelectionStyles();
 
-  if (options.scroll !== false) {
-    const card = document.querySelector(`#device-panel .device-card[data-device-id="${deviceId}"]`);
-    if (card) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  const marker = deviceMarkerById.get(String(deviceId));
+  if (marker && options.focusMap !== false) {
+    focusMarker(marker, { centerPopup: options.centerPopup !== false });
   }
+}
+
+function highlightReportFromMap(reportId) {
+  const report = currentReports.find(item => String(item.id) === String(reportId));
+  selectionState.selectedEntityType = 'report';
+  selectionState.selectedReportId = String(reportId);
+  if (report) selectionState.selectedRobotId = String(report.device_id);
+  updateSelectionStyles();
+
+  const marker = reportMarkerById.get(String(reportId));
+  if (marker) centerPopupForMarker(marker);
+}
+
+function highlightDeviceFromMap(deviceId) {
+  selectionState.selectedEntityType = 'robot';
+  selectionState.selectedRobotId = String(deviceId);
+  updateSelectionStyles();
 
   const marker = deviceMarkerById.get(String(deviceId));
-  if (marker) focusMarker(marker);
+  if (marker) centerPopupForMarker(marker);
 }
 
 function updateMap(reports) {
@@ -509,8 +555,8 @@ function updateMap(reports) {
         <div>${isResolved ? 'Resolved' : 'Awaiting response'}</div>
         ${buildPopupPhoto(report.photo)}
       </div>
-    `);
-    marker.on('click', () => selectReport(report.id));
+    `, { keepInView: true, autoPan: false, maxWidth: 260 });
+    marker.on('click', () => highlightReportFromMap(report.id));
 
     reportMarkers.push(marker);
     reportMarkerById.set(String(report.id), marker);
@@ -606,8 +652,8 @@ async function updateDevices() {
           <div>${isOnline ? 'Online' : 'Offline'}</div>
           <div>Updated: ${formatSecondsAgo(device.seconds_ago)}</div>
         </div>
-      `);
-      marker.on('click', () => selectDevice(device.device_id));
+      `, { keepInView: true, autoPan: false, maxWidth: 260 });
+      marker.on('click', () => highlightDeviceFromMap(device.device_id));
 
       deviceMarkers.push(marker);
       deviceMarkerById.set(String(device.device_id), marker);
