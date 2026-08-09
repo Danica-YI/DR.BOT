@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+import time
 from enum import Enum, auto
 from typing import Any
 
 from ..camera import Camera
-from ..config import BACKEND_URL
+from ..config import BACKEND_URL, HEARTBEAT_INTERVAL_SECONDS, ROBOT_ID
 from ..hardware.motors import MotorController
+from ..location_provider import LocationProvider
 from ..perception import PerceptionClient
 from ..report import create_incident_report
 from ..storage.offline_queue import OfflineQueue
@@ -51,6 +53,9 @@ class StateMachine:
         api_client: ApiClient | None = None,
         sync_manager: SyncManager | None = None,
         initial_state: RobotState = RobotState.OFFLINE,
+        heartbeat_interval: int | None = None,
+        periodic_test_report_interval: int | None = None,
+        static_location: dict[str, float] | None = None,
     ) -> None:
         self.logger = logging.getLogger(__name__)
         self.camera = camera or Camera()
@@ -63,9 +68,22 @@ class StateMachine:
             offline_queue=self.offline_queue,
             api_client=self.api_client,
         )
+        self.location_provider = LocationProvider()
         self.current_state = initial_state
-        self.default_location = {"latitude": 0.0, "longitude": 0.0}
+        self.static_location = static_location
+        self.default_location: dict[str, float] | None = static_location or self.location_provider.get_current_location()
+        self.heartbeat_interval = heartbeat_interval or HEARTBEAT_INTERVAL_SECONDS
+        self.program_startup_time = time.time()
+        self.last_heartbeat_sent_at = self.program_startup_time - self.heartbeat_interval
+        self.periodic_test_report_interval = periodic_test_report_interval
+        self.last_periodic_test_report_time = time.time()
+        self.auto_report_enabled = not self._is_mock_report_mode()
         self.logger.info("Initialized state machine in %s", self.current_state.name)
+        if not self.auto_report_enabled:
+            self.logger.info(
+                "Mock report mode detected; automatic incident reporting is disabled "
+                "while heartbeat remains active."
+            )
 
     @staticmethod
     def _parse_state(state: str | RobotState) -> RobotState:
@@ -121,6 +139,9 @@ class StateMachine:
     def run_once(self) -> None:
         """Run a single state machine cycle."""
         try:
+            self._send_heartbeat_if_due()
+            self._send_periodic_test_report_if_due()
+
             if self.current_state == RobotState.OFFLINE:
                 self.transition(RobotState.SEARCHING)
 
@@ -156,6 +177,12 @@ class StateMachine:
             self.logger.debug("No person detected; remaining in SEARCHING.")
             return
 
+        if not self.auto_report_enabled:
+            self.logger.debug(
+                "Mock person detection ignored because automatic report generation is disabled."
+            )
+            return
+
         if self.transition(RobotState.PERSON_DETECTED):
             self._safe_stop()
             if self.transition(RobotState.STOPPED):
@@ -174,6 +201,11 @@ class StateMachine:
 
     def _perform_interaction(self) -> None:
         self.logger.info("Running triage interaction.")
+        if not self.auto_report_enabled:
+            self.logger.info("Skipping triage/report flow because automatic reporting is disabled.")
+            self.transition(RobotState.SEARCHING)
+            return
+
         try:
             triage_result = self.triage.run_triage()
         except Exception as exc:
@@ -184,14 +216,15 @@ class StateMachine:
         self.transition(RobotState.REPORTING)
         incident = self._create_incident(triage_result)
         self.offline_queue.add_incident(incident.to_dict())
+        self._reset_heartbeat_timer()
         self._report()
 
     def _create_incident(self, triage_result: dict[str, Any]) -> Any:
         self.logger.debug("Creating internal incident from triage result.")
         return create_incident_report(
             incident_type="person_detected",
-            latitude=self.default_location["latitude"],
-            longitude=self.default_location["longitude"],
+            latitude=(self._get_current_location() or {}).get("latitude", 0.0),
+            longitude=(self._get_current_location() or {}).get("longitude", 0.0),
             person_detected=True,
             status=triage_result.get("status", "medical"),
             conscious=triage_result.get("conscious", True),
@@ -214,6 +247,86 @@ class StateMachine:
             self.motors.stop_robot()
         except Exception as exc:
             self.logger.error("Failed to execute safe stop: %s", exc, exc_info=True)
+
+    def _is_mock_report_mode(self) -> bool:
+        """Return whether detection/triage are running in mock mode.
+
+        In this mode heartbeat stays enabled, but mock detections must not create
+        real incident reports automatically.
+        """
+        return any(
+            getattr(component, "use_mock", False)
+            for component in (self.camera, self.perception, self.triage)
+        )
+
+    def _should_send_heartbeat(self) -> bool:
+        """Check if it is time to send a heartbeat."""
+        elapsed = time.time() - self.last_heartbeat_sent_at
+        return elapsed >= self.heartbeat_interval
+
+    def _reset_heartbeat_timer(self) -> None:
+        """Reset the heartbeat timer by updating program startup time."""
+        self.last_heartbeat_sent_at = time.time()
+        self.logger.info("Heartbeat timer reset after new incident report.")
+
+    def _get_current_location(self) -> dict[str, float] | None:
+        """Fetch and cache the best current location."""
+        if self.static_location is not None:
+            return self.static_location
+        latest = self.location_provider.get_current_location()
+        if latest is not None:
+            self.default_location = latest
+        return self.default_location
+
+    def _send_periodic_test_report_if_due(self) -> None:
+        """Emit a synthetic report on a fixed interval for dashboard testing."""
+        if not self.periodic_test_report_interval:
+            return
+
+        elapsed = time.time() - self.last_periodic_test_report_time
+        if elapsed < self.periodic_test_report_interval:
+            return
+
+        self.logger.info("Periodic test report interval reached; creating a synthetic incident.")
+        location = self._get_current_location()
+        incident = create_incident_report(
+            incident_type="periodic_test_report",
+            latitude=(location or {}).get("latitude", 0.0),
+            longitude=(location or {}).get("longitude", 0.0),
+            person_detected=True,
+            status="medical",
+            conscious=True,
+            mobility="limited",
+            needs=["medical"],
+        )
+        self.offline_queue.add_incident(incident.to_dict())
+        self.last_periodic_test_report_time = time.time()
+        self._reset_heartbeat_timer()
+        self._report()
+
+    def _send_heartbeat_if_due(self) -> None:
+        """Send a periodic heartbeat status update if the interval has elapsed."""
+        if not self._should_send_heartbeat():
+            return
+
+        location = self._get_current_location() or {}
+        heartbeat = {
+            "device_id": ROBOT_ID,
+            "lat": location.get("latitude"),
+            "lon": location.get("longitude"),
+            "battery": 75,
+            "status": self.current_state.name.lower(),
+        }
+
+        try:
+            result = self.api_client.send_heartbeat(heartbeat)
+            if result.get("success"):
+                self.logger.info("Heartbeat sent successfully: %s", result)
+                self._reset_heartbeat_timer()
+            else:
+                self.logger.warning("Heartbeat send failed: %s", result.get("error"))
+        except Exception as exc:
+            self.logger.warning("Heartbeat send exception: %s", exc)
 
 
 if __name__ == "__main__":
