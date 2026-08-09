@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import logging
 import time
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any
 
@@ -41,6 +42,68 @@ class RobotState(Enum):
     OFFLINE = auto()
     ERROR = auto()
     RETURNING = auto()
+
+
+@dataclass(frozen=True)
+class PersonFingerprint:
+    perceptual_hash: int
+    mean_color: tuple[int, int, int]
+    aspect_ratio: float
+
+    @property
+    def short_id(self) -> str:
+        return f"{self.perceptual_hash:016x}"[:8]
+
+
+def _hamming_distance(left: int, right: int) -> int:
+    return (left ^ right).bit_count()
+
+
+def build_person_fingerprint(frame: Any, detection: dict[str, Any]) -> PersonFingerprint | None:
+    """Build a lightweight runtime-only visual fingerprint for one person crop."""
+    if not hasattr(frame, "shape") or "bbox" not in detection:
+        return None
+
+    try:
+        import cv2
+    except Exception:
+        return None
+
+    frame_height, frame_width = frame.shape[:2]
+    x1, y1, x2, y2 = detection["bbox"]
+    x1 = max(0, min(int(x1), frame_width - 1))
+    y1 = max(0, min(int(y1), frame_height - 1))
+    x2 = max(x1 + 1, min(int(x2), frame_width))
+    y2 = max(y1 + 1, min(int(y2), frame_height))
+
+    crop = frame[y1:y2, x1:x2]
+    if getattr(crop, "size", 0) == 0:
+        return None
+
+    if len(crop.shape) == 3:
+        grayscale = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        mean_color = tuple(int(channel // 16) for channel in cv2.mean(crop)[:3])
+    else:
+        grayscale = crop
+        mean_value = int(cv2.mean(crop)[0] // 16)
+        mean_color = (mean_value, mean_value, mean_value)
+
+    resized = cv2.resize(grayscale, (8, 8), interpolation=cv2.INTER_AREA)
+    mean_value = float(resized.mean())
+    hash_value = 0
+    for value in resized.flat:
+        hash_value = (hash_value << 1) | int(value >= mean_value)
+
+    aspect_ratio = round((x2 - x1) / max(y2 - y1, 1), 2)
+    return PersonFingerprint(hash_value, mean_color, aspect_ratio)
+
+
+def fingerprints_match(candidate: PersonFingerprint, processed: PersonFingerprint) -> bool:
+    if abs(candidate.aspect_ratio - processed.aspect_ratio) > 0.18:
+        return False
+    if sum(abs(a - b) for a, b in zip(candidate.mean_color, processed.mean_color)) > 8:
+        return False
+    return _hamming_distance(candidate.perceptual_hash, processed.perceptual_hash) <= 6
 
 
 def plan_target_motion(
@@ -160,6 +223,8 @@ class StateMachine:
         self.target_lock_frames = 0
         self.target_frame_uploaded = False
         self.pending_report_photo: str | None = None
+        self.current_person_fingerprint: PersonFingerprint | None = None
+        self.processed_person_registry: list[PersonFingerprint] = []
         self.active_detection: dict[str, Any] | None = None
         self.assessment: dict[str, Any] | None = None
         self.logger.info("Initialized state machine in %s", self.current_state.name)
@@ -319,11 +384,30 @@ class StateMachine:
         self._safe_stop()
         self.logger.info("Target aligned and close (%s/%s).", self.target_lock_frames, TARGET_LOCK_FRAMES)
         if self.target_lock_frames >= TARGET_LOCK_FRAMES:
+            self.current_person_fingerprint = build_person_fingerprint(frame, detection)
             self._capture_target_frame_if_ready(frame, detection)
             self.transition(RobotState.STOPPED)
 
     def _prepare_interaction(self) -> None:
         self.logger.info("Preparing interaction after stop.")
+        if self.current_person_fingerprint is not None:
+            if self._is_person_processed(self.current_person_fingerprint):
+                self.logger.info(
+                    "[PERSON] id=%s already processed; skipping.",
+                    self.current_person_fingerprint.short_id,
+                )
+                self.active_detection = None
+                self.center_frames = 0
+                self.target_lock_frames = 0
+                self.target_frame_uploaded = False
+                self.pending_report_photo = None
+                self.current_person_fingerprint = None
+                self.transition(RobotState.SEARCHING)
+                return
+            self.logger.info(
+                "[PERSON] id=%s not processed; starting existing interaction flow.",
+                self.current_person_fingerprint.short_id,
+            )
         if self.transition(RobotState.INTERACTING):
             self._perform_interaction()
 
@@ -348,6 +432,7 @@ class StateMachine:
     def _report(self) -> None:
         self.logger.info("Attempting backend synchronization for triage assessment.")
         location = self._get_current_location() or {}
+        completed_processing = False
         try:
             flush_result = flush_triage_queue(
                 self.api_client.base_url,
@@ -372,15 +457,19 @@ class StateMachine:
                     self.logger.info("Triage assessment reported successfully: %s", response)
                 else:
                     self.logger.warning("Triage assessment queued offline: %s", response)
+                completed_processing = True
         except Exception as exc:
             self.logger.warning("Sync attempt failed: %s", exc)
 
+        if completed_processing:
+            self._mark_current_person_processed()
         self.assessment = None
         self.active_detection = None
         self.center_frames = 0
         self.target_lock_frames = 0
         self.target_frame_uploaded = False
         self.pending_report_photo = None
+        self.current_person_fingerprint = None
         self.transition(RobotState.SEARCHING)
 
     def _capture_target_frame_if_ready(self, frame: Any, detection: dict[str, Any]) -> None:
@@ -417,6 +506,23 @@ class StateMachine:
             self.motors.stop_robot()
         except Exception as exc:
             self.logger.error("Failed to execute safe stop: %s", exc, exc_info=True)
+
+    def _is_person_processed(self, candidate: PersonFingerprint) -> bool:
+        return any(
+            fingerprints_match(candidate, processed)
+            for processed in self.processed_person_registry
+        )
+
+    def _mark_current_person_processed(self) -> None:
+        if self.current_person_fingerprint is None:
+            return
+        if self._is_person_processed(self.current_person_fingerprint):
+            return
+        self.processed_person_registry.append(self.current_person_fingerprint)
+        self.logger.info(
+            "[PERSON] id=%s marked as processed.",
+            self.current_person_fingerprint.short_id,
+        )
 
     def _is_mock_report_mode(self) -> bool:
         """Return whether detection/triage are running in mock mode.
