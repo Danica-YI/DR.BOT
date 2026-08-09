@@ -1,8 +1,6 @@
-import json
-import os
+from flask import Flask, request, jsonify, render_template
 import sqlite3
-
-from flask import Flask, jsonify, render_template, request
+import os
 
 app = Flask(__name__)
 
@@ -20,6 +18,7 @@ def init_db():
             timestamp TEXT NOT NULL,
             lat REAL,
             lon REAL,
+            photo TEXT,
             resolved INTEGER NOT NULL DEFAULT 0,
             received_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
@@ -32,18 +31,6 @@ def init_db():
             battery INTEGER,
             status TEXT,
             last_seen TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    conn.execute('''
-        CREATE TABLE IF NOT EXISTS triage_assessments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            device_id TEXT NOT NULL,
-            assessment_json TEXT NOT NULL,
-            timestamp TEXT NOT NULL,
-            lat REAL,
-            lon REAL,
-            resolved INTEGER NOT NULL DEFAULT 0,
-            received_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     conn.commit()
@@ -72,7 +59,8 @@ def receive_report():
       "device_id": "V003",
       "status": "medical",      # "no_response" | "both" | "medical" | "resource"
       "timestamp": "2026-08-07T14:32:18+10:00",
-      "location": {"lat": -27.4698, "lon": 153.0251}
+      "location": {"lat": -27.4698, "lon": 153.0251},
+      "photo": "data:image/jpeg;base64,/9j/4AAQ..."   # optional
     }
     """
     data = request.get_json(silent=True)
@@ -84,17 +72,18 @@ def receive_report():
     if missing:
         return jsonify({"success": False, "error": f"Missing fields: {missing}"}), 400
 
-    if data['status'] not in ('no_response', 'both', 'medical', 'resource', 'ok'):
-        return jsonify({"success": False, "error": "status must be one of: no_response, both, medical, resource, ok"}), 400
+    if data['status'] not in ('no_response', 'both', 'medical', 'resource'):
+        return jsonify({"success": False, "error": "status must be one of: no_response, both, medical, resource"}), 400
 
     location = data.get('location') or {}
     lat = location.get('lat')
     lon = location.get('lon')
+    photo = data.get('photo')
 
     conn = get_db()
     conn.execute(
-        'INSERT INTO reports (device_id, status, timestamp, lat, lon, resolved) VALUES (?, ?, ?, ?, ?, ?)',
-        (data['device_id'], data['status'], data['timestamp'], lat, lon, 0)
+        'INSERT INTO reports (device_id, status, timestamp, lat, lon, photo, resolved) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        (data['device_id'], data['status'], data['timestamp'], lat, lon, photo, 0)
     )
 
     # Report also counts as heartbeat (device is alive)
@@ -135,8 +124,8 @@ def receive_batch():
             continue
         location = r.get('location') or {}
         conn.execute(
-            'INSERT INTO reports (device_id, status, timestamp, lat, lon, resolved) VALUES (?, ?, ?, ?, ?, ?)',
-            (r['device_id'], r['status'], r['timestamp'], location.get('lat'), location.get('lon'), 0)
+            'INSERT INTO reports (device_id, status, timestamp, lat, lon, photo, resolved) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (r['device_id'], r['status'], r['timestamp'], location.get('lat'), location.get('lon'), r.get('photo'), 0)
         )
         inserted += 1
     conn.commit()
@@ -172,7 +161,9 @@ def receive_triage_assessment():
     conn.close()
 
     report_status = assessment.get('priority')
-    if assessment.get('response_detected') is False and assessment.get('review_reason') == 'NO_RESPONSE':
+    if assessment.get('response_detected') is False and assessment.get('review_reason') in (
+        'NO_RESPONSE', 'NO_VOICE_OR_GESTURE_RESPONSE'
+    ):
         report_status = 'no_response'
 
     if report_status in ('medical', 'resource', 'no_response'):
@@ -217,7 +208,9 @@ def receive_triage_batch():
             ),
         )
         report_status = assessment.get('priority')
-        if assessment.get('response_detected') is False and assessment.get('review_reason') == 'NO_RESPONSE':
+        if assessment.get('response_detected') is False and assessment.get('review_reason') in (
+            'NO_RESPONSE', 'NO_VOICE_OR_GESTURE_RESPONSE'
+        ):
             report_status = 'no_response'
         if report_status in ('medical', 'resource', 'no_response'):
             conn.execute(
@@ -240,7 +233,6 @@ def get_triage_assessments():
     conn.close()
     return jsonify([dict(row) for row in rows])
 
-
 @app.route('/api/reports', methods=['GET'])
 def get_reports():
     """
@@ -256,7 +248,7 @@ def get_reports():
     params = []
 
     status = request.args.get('status')
-    if status in ('no_response', 'both', 'medical', 'resource', 'ok'):
+    if status in ('no_response', 'both', 'medical', 'resource'):
         query += ' AND status = ?'
         params.append(status)
 

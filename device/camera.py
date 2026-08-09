@@ -1,23 +1,36 @@
+import sys
+import time
 import cv2
 
 
+def status_color(status):
+    if status in ("medical", "no", "no_response"):
+        return (0, 0, 255)
+    if status in ("resource", "help", "result"):
+        return (0, 165, 255)
+    return (0, 200, 0)
+
+
 def open_camera(index: int = 0) -> cv2.VideoCapture:
-    cap = cv2.VideoCapture(index)
+    if sys.platform == "win32":
+        cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+    else:
+        cap = cv2.VideoCapture(index)
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open camera {index}")
+
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+    time.sleep(1)
+    for _ in range(10):
+        cap.read()
+
     return cap
 
 
 def draw_overlay(frame, state: str, message: str, bbox=None, status=None) -> None:
-    color = (0, 255, 0)
-    if status == "medical":
-        color = (0, 0, 255)
-    elif status == "resource":
-        color = (0, 255, 255)
-    elif status == "ok":
-        color = (0, 200, 0)
-    elif status == "no":
-        color = (0, 165, 255)
+    color = status_color(status)
 
     if bbox is not None:
         x1, y1, x2, y2 = bbox

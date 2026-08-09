@@ -4,6 +4,8 @@ import unittest
 from types import SimpleNamespace
 
 from device.pose_classifier import _classify_status_from_landmarks
+from device.camera import status_color
+from device.main import initial_response_route, second_response_route
 from device.triage_flow import OfflineTriageStore, build_triage_assessment
 from device.response import GestureStabilizer
 from device.voice import _answer_from_text
@@ -24,7 +26,6 @@ class TriageFlowTests(unittest.TestCase):
 
     def test_build_triage_assessment_marks_medical_priority(self):
         assessment = build_triage_assessment(
-            initial_status="resource",
             response_type="responding",
             can_walk=False,
             heavy_bleeding=True,
@@ -37,16 +38,16 @@ class TriageFlowTests(unittest.TestCase):
         self.assertGreaterEqual(assessment["confidence"], 0.8)
 
     def test_offline_store_enqueues_and_drain_count(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
+        with tempfile.TemporaryDirectory(dir=os.getcwd()) as tmp_dir:
             db_path = os.path.join(tmp_dir, "offline.db")
             store = OfflineTriageStore(db_path)
-            assessment = build_triage_assessment(initial_status="ok", response_type="responding", can_walk=True)
+            assessment = build_triage_assessment(response_type="responding", can_walk=True)
             store.enqueue(assessment)
 
             self.assertEqual(store.pending_count(), 1)
             pending = store.get_pending()
             self.assertEqual(len(pending), 1)
-            self.assertEqual(pending[0]["payload"]["priority"], "ok")
+            self.assertEqual(pending[0]["payload"]["priority"], "resource")
 
     def test_gesture_requires_multiple_consistent_frames(self):
         stabilizer = GestureStabilizer(window_size=3, required_matches=2)
@@ -72,6 +73,54 @@ class TriageFlowTests(unittest.TestCase):
         self.assertEqual(_answer_from_text("nope"), "NO")
         self.assertEqual(_answer_from_text("help"), "HELP")
         self.assertIsNone(_answer_from_text("maybe"))
+        self.assertEqual(_answer_from_text("I can hear you"), "YES")
+        self.assertEqual(_answer_from_text("I can't"), "NO")
+
+    def test_chinese_voice_vocabulary_maps_to_answers(self):
+        self.assertEqual(_answer_from_text("可以", "zh"), "YES")
+        self.assertEqual(_answer_from_text("不能走路", "zh"), "NO")
+        self.assertEqual(_answer_from_text("我沒有", "zh"), "NO")
+        self.assertEqual(_answer_from_text("我需要帮助", "zh"), "HELP")
+        self.assertIsNone(_answer_from_text("不知道", "zh"))
+        self.assertEqual(_answer_from_text("是", "zh"), "YES")
+        self.assertEqual(_answer_from_text("听不到", "zh"), "NO")
+
+    def test_initial_contact_routes(self):
+        self.assertEqual(initial_response_route("YES"), "VOICE_MODE")
+        self.assertEqual(initial_response_route("NO"), "COMPLETE")
+        self.assertEqual(initial_response_route(None), "SECOND_PROMPT")
+
+    def test_second_window_routes(self):
+        self.assertEqual(second_response_route(voice_answer="YES"), "VOICE_MODE")
+        self.assertEqual(second_response_route(gesture_answer="resource"), "GESTURE_MODE")
+        self.assertEqual(second_response_route(expired=True), "NO_RESPONSE")
+
+    def test_required_status_colours(self):
+        self.assertEqual(status_color("yes"), (0, 200, 0))
+        self.assertEqual(status_color("no"), (0, 0, 255))
+        self.assertEqual(status_color("no_response"), (0, 0, 255))
+        self.assertEqual(status_color("resource"), (0, 165, 255))
+        self.assertEqual(status_color("result"), (0, 165, 255))
+
+    def test_english_and_chinese_answers_produce_same_medical_state(self):
+        english_can_walk = _answer_from_text("no", "en") == "YES"
+        chinese_can_walk = _answer_from_text("不能走路", "zh") == "YES"
+        self.assertEqual(english_can_walk, chinese_can_walk)
+
+        english = build_triage_assessment("responding", english_can_walk)
+        chinese = build_triage_assessment("responding", chinese_can_walk)
+        self.assertEqual(english["priority"], "medical")
+        self.assertEqual(chinese["priority"], "medical")
+
+    def test_english_and_chinese_safe_answers_produce_resource_state(self):
+        english = build_triage_assessment(
+            "responding", _answer_from_text("yes", "en") == "YES"
+        )
+        chinese = build_triage_assessment(
+            "responding", _answer_from_text("可以走路", "zh") == "YES"
+        )
+        self.assertEqual(english["priority"], "resource")
+        self.assertEqual(chinese["priority"], "resource")
 
     def test_hands_crossed_to_opposite_shoulders_are_no(self):
         landmarks = self._pose_landmarks(
@@ -88,6 +137,15 @@ class TriageFlowTests(unittest.TestCase):
             left_shoulder=(0.7, 0.4), right_shoulder=(0.3, 0.4),
             left_elbow=(0.65, 0.58), right_elbow=(0.35, 0.58),
             left_wrist=(0.35, 0.75), right_wrist=(0.65, 0.75),
+        )
+        self.assertEqual(_classify_status_from_landmarks(landmarks), "no")
+
+    def test_crossed_wrist_order_is_no_without_elbows(self):
+        landmarks = self._pose_landmarks(
+            nose=(0.5, 0.2),
+            left_shoulder=(0.7, 0.4), right_shoulder=(0.3, 0.4),
+            left_elbow=(0.68, 0.58), right_elbow=(0.32, 0.58),
+            left_wrist=(0.46, 0.62), right_wrist=(0.54, 0.68),
         )
         self.assertEqual(_classify_status_from_landmarks(landmarks), "no")
 

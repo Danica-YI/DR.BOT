@@ -6,15 +6,20 @@ from typing import Any
 
 
 def build_triage_assessment(
-    initial_status: str,
     response_type: str,
     can_walk: bool,
     heavy_bleeding: bool = False,
     breathing_difficulty: bool = False,
     trapped: bool = False,
+    severe_pain: bool = False,
+    needs_supply: bool = False,
     confidence: float | None = None,
 ) -> dict[str, Any]:
-    """Create a structured triage assessment from a short interaction loop."""
+    """Create a structured triage assessment from a short interaction loop.
+
+    priority is one of: "no_response", "both", "medical", "resource"
+    (matches the dashboard's 4-status system).
+    """
     reasons: list[str] = []
 
     if heavy_bleeding:
@@ -25,19 +30,31 @@ def build_triage_assessment(
         reasons.append("trapped or unable to self-evacuate")
     if not can_walk:
         reasons.append("unable to walk")
+    if severe_pain:
+        reasons.append("severe pain")
+    if needs_supply:
+        reasons.append("needs supplies")
 
     if response_type == "unresponsive":
         reasons.append("no response to simple prompt")
-    elif response_type == "responding":
-        reasons.append("person responded to prompt")
+        priority = "no_response"
     else:
-        reasons.append("response unclear")
-
-    priority = "ok"
-    if heavy_bleeding or breathing_difficulty or response_type == "unresponsive" or trapped or not can_walk:
-        priority = "medical"
-    elif initial_status == "resource":
-        priority = "resource"
+        reasons.append(
+            "person responded to prompt" if response_type == "responding" else "response unclear"
+        )
+        needs_medical = (
+            heavy_bleeding or breathing_difficulty or trapped or severe_pain or not can_walk
+        )
+        if needs_medical and needs_supply:
+            priority = "both"
+        elif needs_medical:
+            priority = "medical"
+        else:
+            # Covers both "needs_supply only" and "no issues reported" —
+            # everyone who triggered a report gets at least a resource
+            # check-in, since a fully healthy person shouldn't have
+            # reached this point in the flow.
+            priority = "resource"
 
     if confidence is None:
         confidence = 0.75
@@ -50,12 +67,13 @@ def build_triage_assessment(
     return {
         "assessment_id": None,
         "timestamp": datetime.datetime.now(datetime.timezone.utc).astimezone().isoformat(),
-        "initial_status": initial_status,
         "response_type": response_type,
         "can_walk": can_walk,
         "heavy_bleeding": heavy_bleeding,
         "breathing_difficulty": breathing_difficulty,
         "trapped": trapped,
+        "severe_pain": severe_pain,
+        "needs_supply": needs_supply,
         "priority": priority,
         "reasons": reasons,
         "confidence": round(confidence, 2),
