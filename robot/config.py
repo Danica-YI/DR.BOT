@@ -29,7 +29,7 @@ ROBOT_NAME = os.getenv("ROBOT_NAME", "RescueBot-01")
 ROBOT_TYPE = os.getenv("ROBOT_TYPE", "ground_robot")
 SOFTWARE_VERSION = os.getenv("SOFTWARE_VERSION", "0.1.0")
 
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5000")
+BACKEND_URL = os.getenv("BACKEND_URL", "http://10.88.56.244:5000")
 YOLO_CONFIG_DIR = os.getenv("YOLO_CONFIG_DIR", os.path.join(os.path.dirname(__file__), "..", ".cache"))
 os.environ.setdefault("YOLO_CONFIG_DIR", YOLO_CONFIG_DIR)
 
