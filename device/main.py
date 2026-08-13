@@ -2,6 +2,7 @@
 """Device-side triage runner with a cleaner state flow."""
 
 import argparse
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -645,7 +646,11 @@ class DeviceTriageRunner:
 
 def build_parser():
     parser = argparse.ArgumentParser(description="Device integration runner")
-    parser.add_argument("--base-url", default="http://127.0.0.1:5000", help="Dashboard API base URL")
+    parser.add_argument(
+        "--base-url",
+        default=os.getenv("BACKEND_URL", "http://10.88.56.244:5000"),
+        help="Dashboard API base URL",
+    )
     parser.add_argument("--device-id", default="DR-01", help="Device ID to report")
     parser.add_argument("--camera-index", type=int, default=0, help="OpenCV camera index")
     parser.add_argument("--lat", type=float, default=-27.4698, help="Report latitude")
